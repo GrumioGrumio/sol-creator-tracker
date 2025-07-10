@@ -298,7 +298,7 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Analyze Transactions
+                Deep Analysis
             </button>
         </div>
     </div>
@@ -324,13 +324,13 @@
             return `${sol.toFixed(2)} SOL`;
         }
 
-        // Conservative transaction analysis for free RPC
+        // Comprehensive transaction analysis with new API key
         async function fetchBasicData() {
             if (isLoading) return;
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
-            statusTextElement.textContent = 'Analyzing recent transactions...';
+            statusTextElement.textContent = 'Starting comprehensive analysis...';
             
             refreshButtonElement.disabled = true;
             refreshButtonElement.classList.add('loading');
@@ -342,21 +342,25 @@
             `;
 
             try {
+                console.log('🚀 Starting COMPLETE transaction history scan...');
+                console.log('Expected result: ~1527 SOL');
+                
                 let totalReceived = 0;
                 let transactionCount = 0;
-                
-                console.log('🔍 Starting conservative analysis with public RPC...');
-                
-                // Get transaction signatures in small batches
                 let allSignatures = [];
                 let before = null;
-                const maxPages = 5; // Very conservative for free RPC
+                let hasMore = true;
+                let pageCount = 0;
                 
-                for (let page = 0; page < maxPages; page++) {
+                // PHASE 1: Get COMPLETE transaction history
+                statusTextElement.textContent = 'Scanning complete transaction history...';
+                
+                while (hasMore && pageCount < 200) { // Much deeper scan
                     try {
-                        statusTextElement.textContent = `Getting transaction history (${page + 1}/${maxPages})...`;
-                        
-                        const params = [WALLET_ADDRESS, { limit: 100 }]; // Smaller limit
+                        const params = [WALLET_ADDRESS, { 
+                            limit: 1000,
+                            commitment: 'finalized'
+                        }];
                         if (before) {
                             params[1].before = before;
                         }
@@ -368,130 +372,243 @@
                             },
                             body: JSON.stringify({
                                 jsonrpc: '2.0',
-                                id: 1,
+                                id: pageCount + 1,
                                 method: 'getSignaturesForAddress',
                                 params: params
                             })
                         });
 
+                        if (!signaturesResponse.ok) {
+                            console.warn(`HTTP ${signaturesResponse.status} on page ${pageCount + 1}`);
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            continue;
+                        }
+
                         const signaturesData = await signaturesResponse.json();
                         
                         if (signaturesData.error) {
-                            console.warn('Signatures error:', signaturesData.error);
+                            console.warn(`API Error on page ${pageCount + 1}:`, signaturesData.error);
+                            if (signaturesData.error.code === 429) {
+                                await new Promise(resolve => setTimeout(resolve, 5000)); // Rate limit
+                                continue;
+                            }
                             break;
                         }
 
                         const signatures = signaturesData.result || [];
-                        if (signatures.length === 0) break;
                         
-                        allSignatures.push(...signatures);
-                        before = signatures[signatures.length - 1].signature;
-                        
-                        // Long delay for free RPC
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        if (signatures.length === 0) {
+                            console.log('✅ Reached end of transaction history');
+                            hasMore = false;
+                        } else {
+                            allSignatures.push(...signatures);
+                            before = signatures[signatures.length - 1].signature;
+                            pageCount++;
+                            
+                            statusTextElement.textContent = `Found ${allSignatures.length} total transactions (page ${pageCount})`;
+                            
+                            if (signatures.length < 1000) {
+                                console.log(`✅ Reached end: ${signatures.length} transactions on final page`);
+                                hasMore = false;
+                            }
+                        }
+
+                        // Reasonable delay to avoid rate limits
+                        await new Promise(resolve => setTimeout(resolve, 100));
                         
                     } catch (pageError) {
-                        console.warn('Page error:', pageError);
-                        break;
+                        console.warn(`Error on page ${pageCount + 1}:`, pageError);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        pageCount++;
                     }
                 }
+
+                console.log(`📊 PHASE 1 COMPLETE:`);
+                console.log(`- Pages scanned: ${pageCount}`);
+                console.log(`- Total signatures found: ${allSignatures.length}`);
                 
-                console.log(`Found ${allSignatures.length} signatures`);
-                statusTextElement.textContent = `Analyzing ${allSignatures.length} transactions...`;
+                // PHASE 2: Analyze ALL transactions for incoming SOL
+                statusTextElement.textContent = `Analyzing ${allSignatures.length} transactions for SOL transfers...`;
                 
-                // Analyze transactions one by one (very slow but reliable)
                 let processedCount = 0;
+                let errorCount = 0;
+                let successfulTransfers = [];
                 
-                for (const sigInfo of allSignatures) {
-                    try {
-                        if (sigInfo.err) {
-                            processedCount++;
-                            continue;
-                        }
-                        
-                        const txResponse = await fetch(SOLANA_RPC_URL, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                jsonrpc: '2.0',
-                                id: 1,
-                                method: 'getTransaction',
-                                params: [
-                                    sigInfo.signature,
-                                    { encoding: 'json', maxSupportedTransactionVersion: 0 }
-                                ]
-                            })
-                        });
+                // Process in smaller, more reliable batches
+                const batchSize = 5;
+                
+                for (let i = 0; i < allSignatures.length; i += batchSize) {
+                    const batch = allSignatures.slice(i, i + batchSize);
+                    
+                    // Process each transaction in the batch
+                    for (const sigInfo of batch) {
+                        try {
+                            // Skip failed transactions
+                            if (sigInfo.err) {
+                                processedCount++;
+                                continue;
+                            }
+                            
+                            const txResponse = await fetch(SOLANA_RPC_URL, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    jsonrpc: '2.0',
+                                    id: processedCount + 1000,
+                                    method: 'getTransaction',
+                                    params: [
+                                        sigInfo.signature,
+                                        { 
+                                            encoding: 'json',
+                                            maxSupportedTransactionVersion: 0,
+                                            commitment: 'finalized'
+                                        }
+                                    ]
+                                })
+                            });
 
-                        const txData = await txResponse.json();
-                        
-                        if (txData.result && txData.result.meta && !txData.result.meta.err) {
-                            const preBalances = txData.result.meta.preBalances;
-                            const postBalances = txData.result.meta.postBalances;
-                            const accountKeys = txData.result.transaction.message.accountKeys;
-
-                            // Find wallet index
-                            let walletIndex = -1;
-                            for (let i = 0; i < accountKeys.length; i++) {
-                                if (accountKeys[i] === WALLET_ADDRESS) {
-                                    walletIndex = i;
-                                    break;
-                                }
+                            if (!txResponse.ok) {
+                                errorCount++;
+                                processedCount++;
+                                continue;
                             }
 
-                            if (walletIndex !== -1 && 
-                                walletIndex < preBalances.length && 
-                                walletIndex < postBalances.length) {
+                            const txData = await txResponse.json();
+                            
+                            if (txData.error) {
+                                if (txData.error.code === 429) {
+                                    // Rate limited, wait and retry
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                    continue;
+                                }
+                                errorCount++;
+                                processedCount++;
+                                continue;
+                            }
+                            
+                            if (txData.result && txData.result.meta && !txData.result.meta.err) {
+                                const meta = txData.result.meta;
+                                const transaction = txData.result.transaction;
                                 
-                                const balanceChange = postBalances[walletIndex] - preBalances[walletIndex];
-                                if (balanceChange > 0) {
-                                    totalReceived += balanceChange;
-                                    transactionCount++;
-                                    console.log(`✅ Found: ${formatSOL(balanceChange)}`);
+                                // Method 1: Balance change analysis
+                                const preBalances = meta.preBalances;
+                                const postBalances = meta.postBalances;
+                                const accountKeys = transaction.message.accountKeys;
+                                
+                                let walletIndex = -1;
+                                for (let j = 0; j < accountKeys.length; j++) {
+                                    if (accountKeys[j] === WALLET_ADDRESS) {
+                                        walletIndex = j;
+                                        break;
+                                    }
+                                }
+
+                                if (walletIndex !== -1 && 
+                                    walletIndex < preBalances.length && 
+                                    walletIndex < postBalances.length) {
+                                    
+                                    const preBalance = preBalances[walletIndex];
+                                    const postBalance = postBalances[walletIndex];
+                                    const balanceChange = postBalance - preBalance;
+                                    
+                                    if (balanceChange > 0) {
+                                        totalReceived += balanceChange;
+                                        transactionCount++;
+                                        
+                                        successfulTransfers.push({
+                                            signature: sigInfo.signature.substring(0, 8),
+                                            amount: balanceChange,
+                                            blockTime: sigInfo.blockTime,
+                                            method: 'balance'
+                                        });
+                                        
+                                        // Log significant transfers
+                                        if (balanceChange >= 1000000000) { // >= 1 SOL
+                                            console.log(`💰 ${formatSOL(balanceChange)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
+                                        }
+                                    }
                                 }
                             }
+                            
+                            processedCount++;
+                            
+                            // Update progress every 100 transactions
+                            if (processedCount % 100 === 0) {
+                                const progress = Math.round((processedCount / allSignatures.length) * 100);
+                                statusTextElement.textContent = `Progress: ${progress}% • ${transactionCount} transfers • ${formatSOL(totalReceived)} found`;
+                            }
+                            
+                            // Small delay between transactions
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            
+                        } catch (txError) {
+                            console.warn('Transaction processing error:', txError);
+                            errorCount++;
+                            processedCount++;
                         }
-                        
-                        processedCount++;
-                        const progress = Math.round((processedCount / allSignatures.length) * 100);
-                        statusTextElement.textContent = `Progress: ${progress}% • ${transactionCount} transfers found`;
-                        
-                        // Very long delay for free RPC
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        
-                    } catch (txError) {
-                        console.warn('Transaction error:', txError);
-                        processedCount++;
-                        // Continue processing
                     }
+                    
+                    // Longer delay between batches
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
+
+                // PHASE 3: Results and verification
+                console.log(`📊 FINAL COMPREHENSIVE RESULTS:`);
+                console.log(`- Total transaction signatures: ${allSignatures.length}`);
+                console.log(`- Transactions processed: ${processedCount}`);
+                console.log(`- Processing errors: ${errorCount}`);
+                console.log(`- Incoming SOL transfers found: ${transactionCount}`);
+                console.log(`- Total SOL received: ${formatSOL(totalReceived)}`);
+                console.log(`- Expected amount: ~1527 SOL`);
                 
-                console.log(`=== CONSERVATIVE ANALYSIS RESULTS ===`);
-                console.log(`Transactions analyzed: ${processedCount}`);
-                console.log(`Incoming transfers found: ${transactionCount}`);
-                console.log(`Total SOL received (partial): ${formatSOL(totalReceived)}`);
-                console.log(`⚠️ This is likely incomplete due to free API limitations`);
-                console.log(`For complete analysis, upgrade to paid Helius plan`);
+                const expectedLamports = 1527 * 1000000000;
+                const actualLamports = totalReceived;
+                const difference = Math.abs(actualLamports - expectedLamports);
+                const percentDiff = (difference / expectedLamports) * 100;
+                
+                console.log(`- Difference from expected: ${formatSOL(difference)} (${percentDiff.toFixed(1)}%)`);
+                
+                // Show sample of largest transfers
+                const largeTransfers = successfulTransfers
+                    .filter(t => t.amount >= 1000000000)
+                    .sort((a, b) => b.amount - a.amount)
+                    .slice(0, 10);
+                    
+                console.log(`💎 Top 10 largest transfers:`, largeTransfers.map(t => 
+                    `${formatSOL(t.amount)} (${t.signature}...)`
+                ));
                 
                 // Update display
                 totalSOLElement.textContent = formatSOL(totalReceived);
                 
-                // Status
+                // Animate update
+                totalSOLElement.style.transform = 'scale(1.1)';
+                setTimeout(() => {
+                    totalSOLElement.style.transform = 'scale(1)';
+                }, 300);
+                
+                // Success status
                 statusDotElement.className = 'status-dot';
-                statusTextElement.textContent = `Partial scan: ${transactionCount} transfers • Limited by free API`;
+                statusTextElement.textContent = `Complete: ${transactionCount} transfers • ${Math.round(percentDiff)}% diff from expected`;
+                
+                if (percentDiff > 5) {
+                    console.warn(`⚠️ Significant difference detected!`);
+                    console.log(`This could indicate:`);
+                    console.log(`• Some very old transactions might be missing`);
+                    console.log(`• Different calculation methodology`);
+                    console.log(`• Expected amount includes non-SOL transfers`);
+                    console.log(`• Wallet may have multiple transaction types not captured`);
+                }
 
             } catch (error) {
-                console.error('Error:', error);
+                console.error('❌ Comprehensive analysis failed:', error);
                 
                 statusDotElement.className = 'status-dot error';
-                statusTextElement.textContent = 'Free API limit reached';
+                statusTextElement.textContent = 'Analysis failed';
                 
-                console.log('💡 Recommendations:');
-                console.log('1. Check wallet on Solscan.io for accurate totals');
-                console.log('2. Upgrade to paid Helius API for full analysis');
-                console.log('3. Use third-party portfolio trackers');
+                totalSOLElement.textContent = 'Error';
             }
 
             // Reset button
@@ -502,7 +619,7 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Analyze Transactions
+                Deep Analysis
             `;
         }
 
