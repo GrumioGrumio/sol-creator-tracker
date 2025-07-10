@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 20px; font-family: 'Montserrat', sans-serif; }
+        .card { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 12px; padding: 24px; border: 1px solid rgba(249,205,79,0.3); }
+        .gradient-bg { background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #000000 100%); }
+        .gold { color: #f9cd4f; }
+        .white { color: #ffffff; }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2" style="font-weight: 700;">
+                <span class="white">Total</span>
+                <span class="gold"> SOL </span>
+                <span class="white">Payouts</span>
+                <span class="gold"> to </span>
+                <span class="white">Creators</span>
+            </h1>
+            <p class="text-yellow-200">Real-time monitoring of SOL Paid to Creators</p>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-white/70 text-sm">Total SOL Received</p>
+                        <p class="text-2xl font-bold text-white" id="totalSOL">2,330.00 SOL</p>
+                    </div>
+                    <svg class="gold" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"></polyline>
+                        <polyline points="16,7 22,7 22,13"></polyline>
+                    </svg>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-white/70 text-sm">Total Transactions</p>
+                        <p class="text-2xl font-bold text-white" id="totalTx">8</p>
+                    </div>
+                    <svg class="gold" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Simple Chart Representation -->
+        <div class="card mb-8">
+            <h3 class="text-white text-lg font-semibold mb-4">Monthly SOL Received</h3>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="text-center">
+                    <div class="bg-gradient-to-t from-gold to-yellow-400 h-32 rounded mb-2 opacity-80"></div>
+                    <p class="text-white text-sm">January</p>
+                    <p class="gold font-bold">958.25 SOL</p>
+                </div>
+                <div class="text-center">
+                    <div class="bg-gradient-to-t from-gold to-yellow-400 h-48 rounded mb-2"></div>
+                    <p class="text-white text-sm">February</p>
+                    <p class="gold font-bold">1,371.75 SOL</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="card">
+            <h3 class="text-white text-lg font-semibold mb-4">Recent Activity</h3>
+            <div class="space-y-3">
+                <div class="flex justify-between items-center border-b border-white/10 pb-2">
+                    <span class="text-white/70">Feb 12, 2024</span>
+                    <span class="gold font-bold">+750.00 SOL</span>
+                </div>
+                <div class="flex justify-between items-center border-b border-white/10 pb-2">
+                    <span class="text-white/70">Feb 08, 2024</span>
+                    <span class="gold font-bold">+98.50 SOL</span>
+                </div>
+                <div class="flex justify-between items-center border-b border-white/10 pb-2">
+                    <span class="text-white/70">Feb 05, 2024</span>
+                    <span class="gold font-bold">+350.00 SOL</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-update every 3 hours (simplified for Wix)
+        function updateData() {
+            console.log('Checking for new SOL transactions...');
+            // In production, this would call your Solana API
+            
+            // Simulate data update
+            const lastUpdate = new Date().toLocaleTimeString();
+            console.log('Last updated:', lastUpdate);
+        }
+
+        // Initial load
+        updateData();
+        
+        // Update every 3 hours
+        setInterval(updateData, 3 * 60 * 60 * 1000);
+
+        // Mock real-time effect
+        setInterval(() => {
+            const elements = document.querySelectorAll('.gold');
+            elements.forEach(el => {
+                el.style.textShadow = '0 0 10px #f9cd4f';
+                setTimeout(() => {
+                    el.style.textShadow = 'none';
+                }, 1000);
+            });
+        }, 30000);
+    </script>
+</body>
+</html>
