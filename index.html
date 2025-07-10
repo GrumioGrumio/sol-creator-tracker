@@ -3,84 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; padding: 20px; font-family: 'Montserrat', sans-serif; }
-        .card { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 12px; padding: 24px; border: 1px solid rgba(249,205,79,0.3); }
-        .gradient-bg { background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #000000 100%); }
-        .gold { color: #f9cd4f; }
-        .white { color: #ffffff; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 25%, #000000 50%, #1a1a1a 75%, #0a0a0a 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .title {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 800;
+            margin-bottom: 16px;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+        
+        .word-white {
+            color: #ffffff;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+        }
+        
+        .word-gold {
+            color: #f9cd4f;
+            text-shadow: 0 0 30px rgba(249, 205, 79, 0.5);
+        }
+        
+        .subtitle {
+            color: #f9cd4f;
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 60px;
+            opacity: 0.9;
+            letter-spacing: 0.5px;
+        }
+        
+        .main-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 60px 40px;
+            border: 2px solid rgba(249, 205, 79, 0.2);
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.4),
+                0 0 40px rgba(249, 205, 79, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .main-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 
+                0 30px 80px rgba(0, 0, 0, 0.5),
+                0 0 60px rgba(249, 205, 79, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        
+        .main-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(249, 205, 79, 0.1), transparent);
+            transition: left 2s ease;
+        }
+        
+        .main-card:hover::before {
+            left: 100%;
+        }
+        
+        .card-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.95rem;
+            font-weight: 500;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .sol-amount {
+            color: #f9cd4f;
+            font-size: clamp(3rem, 8vw, 5rem);
+            font-weight: 800;
+            margin-bottom: 20px;
+            text-shadow: 0 0 40px rgba(249, 205, 79, 0.4);
+            letter-spacing: -0.02em;
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from {
+                text-shadow: 0 0 40px rgba(249, 205, 79, 0.4);
+            }
+            to {
+                text-shadow: 0 0 60px rgba(249, 205, 79, 0.6);
+            }
+        }
+        
+        .icon-container {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(249, 205, 79, 0.2), rgba(249, 205, 79, 0.1));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(249, 205, 79, 0.3);
+        }
+        
+        .icon {
+            color: #f9cd4f;
+            width: 28px;
+            height: 28px;
+            stroke-width: 2.5;
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-top: 20px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f9cd4f;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 0.6;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.2);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 20px 15px;
+            }
+            
+            .main-card {
+                padding: 40px 30px;
+                border-radius: 20px;
+            }
+            
+            .icon-container {
+                width: 50px;
+                height: 50px;
+                top: 20px;
+                right: 20px;
+            }
+            
+            .icon {
+                width: 24px;
+                height: 24px;
+            }
+            
+            .subtitle {
+                margin-bottom: 40px;
+                font-size: 1rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .main-card {
+                padding: 30px 20px;
+            }
+            
+            .card-label {
+                font-size: 0.85rem;
+            }
+        }
     </style>
 </head>
-<body class="gradient-bg min-h-screen">
-    <div class="max-w-6xl mx-auto">
+<body>
+    <div class="container">
         <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold mb-2" style="font-weight: 700;">
-                <span class="white">Total</span>
-                <span class="gold"> SOL </span>
-                <span class="white">Payouts</span>
-                <span class="gold"> to </span>
-                <span class="white">Creators</span>
-            </h1>
-            <p class="text-yellow-200">Real-time monitoring of SOL Paid to Creators</p>
-        </div>
+        <h1 class="title">
+            <span class="word-white">Total</span>
+            <span class="word-gold"> SOL </span>
+            <span class="word-white">Payouts</span>
+            <span class="word-gold"> to </span>
+            <span class="word-white">Creators</span>
+        </h1>
+        <p class="subtitle">Real-time monitoring of SOL Paid to Creators</p>
 
-        <!-- Summary Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div class="card">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-white/70 text-sm">Total SOL Received</p>
-                        <p class="text-2xl font-bold text-white" id="totalSOL">2,330.00 SOL</p>
-                    </div>
-                    <svg class="gold" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"></polyline>
-                        <polyline points="16,7 22,7 22,13"></polyline>
-                    </svg>
-                </div>
+        <!-- Main SOL Display Card -->
+        <div class="main-card">
+            <div class="icon-container">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"></polyline>
+                    <polyline points="16,7 22,7 22,13"></polyline>
+                </svg>
             </div>
-
-            <div class="card">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-white/70 text-sm">Total Transactions</p>
-                        <p class="text-2xl font-bold text-white" id="totalTx">8</p>
-                    </div>
-                    <svg class="gold" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                        <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
-                    </svg>
-                </div>
-            </div>
-        </div>
-
-        <!-- Simple Chart Representation -->
-        <div class="card mb-8">
-            <h3 class="text-white text-lg font-semibold mb-4">Monthly SOL Received</h3>
-            <div class="grid grid-cols-2 gap-4">
-                <div class="text-center">
-                    <div class="bg-gradient-to-t from-gold to-yellow-400 h-32 rounded mb-2 opacity-80"></div>
-                    <p class="text-white text-sm">January</p>
-                    <p class="gold font-bold">958.25 SOL</p>
-                </div>
-                <div class="text-center">
-                    <div class="bg-gradient-to-t from-gold to-yellow-400 h-48 rounded mb-2"></div>
-                    <p class="text-white text-sm">February</p>
-                    <p class="gold font-bold">1,371.75 SOL</p>
-                </div>
+            
+            <div class="card-label">Total SOL Received</div>
+            <div class="sol-amount" id="totalSOL">2,330.00 SOL</div>
+            
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>Live tracking every 3 hours</span>
             </div>
         </div>
     </div>
 
     <script>
-        // Auto-update every 3 hours (simplified for Wix)
+        // Enhanced visual effects
         function updateData() {
             console.log('Checking for new SOL transactions...');
-            // In production, this would call your Solana API
-            
-            // Simulate data update
             const lastUpdate = new Date().toLocaleTimeString();
             console.log('Last updated:', lastUpdate);
         }
@@ -91,16 +252,29 @@
         // Update every 3 hours
         setInterval(updateData, 3 * 60 * 60 * 1000);
 
-        // Mock real-time effect
-        setInterval(() => {
-            const elements = document.querySelectorAll('.gold');
-            elements.forEach(el => {
-                el.style.textShadow = '0 0 10px #f9cd4f';
-                setTimeout(() => {
-                    el.style.textShadow = 'none';
-                }, 1000);
-            });
-        }, 30000);
+        // Enhanced glow effect on hover
+        const mainCard = document.querySelector('.main-card');
+        const solAmount = document.querySelector('.sol-amount');
+        
+        mainCard.addEventListener('mouseenter', () => {
+            solAmount.style.textShadow = '0 0 80px rgba(249, 205, 79, 0.8)';
+        });
+        
+        mainCard.addEventListener('mouseleave', () => {
+            solAmount.style.textShadow = '0 0 40px rgba(249, 205, 79, 0.4)';
+        });
+
+        // Subtle animation on load
+        window.addEventListener('load', () => {
+            mainCard.style.opacity = '0';
+            mainCard.style.transform = 'translateY(30px)';
+            
+            setTimeout(() => {
+                mainCard.style.transition = 'all 0.8s ease';
+                mainCard.style.opacity = '1';
+                mainCard.style.transform = 'translateY(0)';
+            }, 200);
+        });
     </script>
 </body>
 </html>
