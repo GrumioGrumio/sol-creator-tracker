@@ -134,6 +134,54 @@
             margin-top: 20px;
         }
         
+        .refresh-button {
+            background: linear-gradient(135deg, rgba(249, 205, 79, 0.2), rgba(249, 205, 79, 0.1));
+            border: 1px solid rgba(249, 205, 79, 0.3);
+            color: #f9cd4f;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .refresh-button:hover {
+            background: linear-gradient(135deg, rgba(249, 205, 79, 0.3), rgba(249, 205, 79, 0.2));
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(249, 205, 79, 0.2);
+        }
+        
+        .refresh-button:active {
+            transform: translateY(0px);
+        }
+        
+        .refresh-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .refresh-icon {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.3s ease;
+        }
+        
+        .refresh-button.loading .refresh-icon {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
         .status-dot {
             width: 8px;
             height: 8px;
@@ -229,6 +277,14 @@
                 <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">Connecting to Solana...</span>
             </div>
+            
+            <button class="refresh-button" id="refreshButton" onclick="manualRefresh()">
+                <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Refresh Now
+            </button>
+            
             <div class="error-message" id="errorMessage" style="display: none;"></div>
         </div>
     </div>
@@ -244,10 +300,18 @@
         const statusTextElement = document.getElementById('statusText');
         const errorMessageElement = document.getElementById('errorMessage');
         const mainCardElement = document.getElementById('mainCard');
+        const refreshButtonElement = document.getElementById('refreshButton');
 
         // State
         let totalSOLReceived = 0;
         let isLoading = false;
+
+        // Manual refresh function
+        function manualRefresh() {
+            if (!isLoading) {
+                fetchWalletData();
+            }
+        }
 
         // Utility function to format SOL amount
         function formatSOL(lamports) {
@@ -261,9 +325,19 @@
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
-            statusTextElement.textContent = 'Fetching data...';
+            statusTextElement.textContent = 'Fetching latest data...';
             errorMessageElement.style.display = 'none';
             mainCardElement.classList.add('loading');
+            
+            // Update refresh button state
+            refreshButtonElement.disabled = true;
+            refreshButtonElement.classList.add('loading');
+            refreshButtonElement.innerHTML = `
+                <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Refreshing...
+            `;
 
             try {
                 // Fetch recent transaction signatures
@@ -358,7 +432,7 @@
                 // Error status
                 statusDotElement.className = 'status-dot error';
                 statusTextElement.textContent = 'Connection error';
-                errorMessageElement.textContent = 'Unable to fetch data. Retrying in 3 hours...';
+                errorMessageElement.textContent = 'Unable to fetch data. Try refreshing or check back later.';
                 errorMessageElement.style.display = 'block';
                 mainCardElement.classList.remove('loading');
                 
@@ -366,7 +440,16 @@
                 totalSOLElement.textContent = '2,330.00 SOL';
             }
 
+            // Reset refresh button state
             isLoading = false;
+            refreshButtonElement.disabled = false;
+            refreshButtonElement.classList.remove('loading');
+            refreshButtonElement.innerHTML = `
+                <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Refresh Now
+            `;
         }
 
         // Initial load
