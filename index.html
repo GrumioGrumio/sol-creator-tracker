@@ -591,7 +591,7 @@
                 const balanceData = await balanceResponse.json();
                 const currentBalance = balanceData.result?.value || 0;
 
-                // Final results
+                // Final results and display update
                 console.log(`=== FINAL ANALYSIS RESULTS ===`);
                 console.log(`Method used: ${methodUsed}`);
                 console.log(`Total transactions scanned: ${allSignatures.length}`);
@@ -615,9 +615,27 @@
                     console.log(`• Expected amount includes different transaction types`);
                 }
 
-                // Use calculated total
+                // CRITICAL: Update the display with the calculated total
                 totalSOLReceived = totalReceived;
-                totalSOLElement.textContent = formatSOL(totalSOLReceived);
+                
+                // Force update the display element
+                const displayAmount = formatSOL(totalReceived);
+                totalSOLElement.textContent = displayAmount;
+                totalSOLElement.style.opacity = '0';
+                
+                // Animate the update to make it visible
+                setTimeout(() => {
+                    totalSOLElement.style.transition = 'all 0.5s ease';
+                    totalSOLElement.style.opacity = '1';
+                    totalSOLElement.style.transform = 'scale(1.05)';
+                    
+                    setTimeout(() => {
+                        totalSOLElement.style.transform = 'scale(1)';
+                    }, 200);
+                }, 100);
+                
+                console.log(`Display updated to: ${displayAmount}`);
+                console.log(`Element content: ${totalSOLElement.textContent}`);
                 
                 // Success status
                 statusDotElement.className = 'status-dot';
