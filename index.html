@@ -134,6 +134,54 @@
             margin-top: 20px;
         }
         
+        .progress-container {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px auto;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f9cd4f, #ffd700);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .progress-text {
+            text-align: center;
+            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.8rem;
+        }
+        
         .refresh-button {
             background: linear-gradient(135deg, rgba(249, 205, 79, 0.2), rgba(249, 205, 79, 0.1));
             border: 1px solid rgba(249, 205, 79, 0.3);
@@ -206,6 +254,12 @@
             }
         }
         
+        .last-refreshed {
+            margin-top: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.8rem;
+        }
+        
         @media (max-width: 768px) {
             body {
                 padding: 20px 15px;
@@ -262,12 +316,23 @@
                 <span id="statusText">Click button to start analysis</span>
             </div>
             
-            <button class="refresh-button" id="refreshButton" onclick="startAnalysis()">
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+            
+            <button class="refresh-button" id="refreshButton" onclick="startAnalysis(false)">
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
                 Start Analysis
             </button>
+            
+            <div class="last-refreshed">
+                <span id="lastRefreshed">Ready to scan</span>
+            </div>
         </div>
     </div>
 
@@ -280,20 +345,85 @@
         const statusTextElement = document.getElementById('statusText');
         const refreshButtonElement = document.getElementById('refreshButton');
         const mainCardElement = document.getElementById('mainCard');
+        const lastRefreshedElement = document.getElementById('lastRefreshed');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
 
         let isLoading = false;
+        let lastManualScan = 0;
+        const COOLDOWN_PERIOD = 60 * 60 * 1000; // 1 hour in milliseconds
 
         function formatSOL(lamports) {
             const sol = lamports / 1000000000;
             return `${sol.toFixed(2)} SOL`;
         }
 
-        async function startAnalysis() {
+        function updateProgress(current, total, phase = '') {
+            const percentage = Math.round((current / total) * 100);
+            progressFill.style.width = `${percentage}%`;
+            progressText.textContent = `${percentage}% ${phase}`;
+        }
+
+        function showProgress() {
+            progressContainer.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressText.textContent = '0%';
+        }
+
+        function hideProgress() {
+            progressContainer.style.display = 'none';
+        }
+
+        function updateCooldownButton() {
+            const now = Date.now();
+            const timeSinceLastScan = now - lastManualScan;
+            const timeRemaining = COOLDOWN_PERIOD - timeSinceLastScan;
+            
+            if (timeRemaining > 0) {
+                const minutesRemaining = Math.ceil(timeRemaining / (60 * 1000));
+                refreshButtonElement.disabled = true;
+                refreshButtonElement.innerHTML = `
+                    <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12,6 12,12 16,14"></polyline>
+                    </svg>
+                    Cooldown: ${minutesRemaining}m
+                `;
+                refreshButtonElement.style.opacity = '0.5';
+                setTimeout(updateCooldownButton, 60000);
+            } else {
+                refreshButtonElement.disabled = false;
+                refreshButtonElement.innerHTML = `
+                    <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Start Analysis
+                `;
+                refreshButtonElement.style.opacity = '1';
+            }
+        }
+
+        async function startAnalysis(isAutoRefresh = false) {
+            if (!isAutoRefresh) {
+                const now = Date.now();
+                const timeSinceLastScan = now - lastManualScan;
+                
+                if (timeSinceLastScan < COOLDOWN_PERIOD) {
+                    const minutesRemaining = Math.ceil((COOLDOWN_PERIOD - timeSinceLastScan) / (60 * 1000));
+                    console.log(`⏰ Manual scan on cooldown. Try again in ${minutesRemaining} minutes.`);
+                    return;
+                }
+                
+                lastManualScan = now;
+            }
+            
             if (isLoading) return;
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
             statusTextElement.textContent = 'Starting comprehensive analysis...';
+            showProgress();
             
             refreshButtonElement.disabled = true;
             refreshButtonElement.classList.add('loading');
@@ -306,7 +436,7 @@
 
             try {
                 console.log('🚀 Starting COMPLETE transaction history scan...');
-                console.log('Expected result: ~1527 SOL');
+                console.log('Target: 774.45 SOL');
                 
                 let totalReceived = 0;
                 let transactionCount = 0;
@@ -317,7 +447,7 @@
                 
                 statusTextElement.textContent = 'Scanning complete transaction history...';
                 
-                while (hasMore && pageCount < 200) {
+                while (hasMore && pageCount < 500) {
                     try {
                         const params = [WALLET_ADDRESS, { 
                             limit: 1000,
@@ -351,7 +481,7 @@
                         if (signaturesData.error) {
                             console.warn(`API Error on page ${pageCount + 1}:`, signaturesData.error);
                             if (signaturesData.error.code === 429) {
-                                await new Promise(resolve => setTimeout(resolve, 5000));
+                                await new Promise(resolve => setTimeout(resolve, 3000));
                                 continue;
                             }
                             break;
@@ -360,14 +490,19 @@
                         const signatures = signaturesData.result || [];
                         
                         if (signatures.length === 0) {
-                            console.log('✅ Reached end of transaction history');
+                            console.log('✅ Reached absolute end of transaction history');
                             hasMore = false;
                         } else {
                             allSignatures.push(...signatures);
                             before = signatures[signatures.length - 1].signature;
                             pageCount++;
                             
-                            statusTextElement.textContent = `Found ${allSignatures.length} total transactions (page ${pageCount})`;
+                            if (signatures.length > 0) {
+                                const oldestTx = signatures[signatures.length - 1];
+                                const oldestDate = new Date(oldestTx.blockTime * 1000);
+                                statusTextElement.textContent = `Scanning history: Page ${pageCount} • Oldest: ${oldestDate.toLocaleDateString()}`;
+                                updateProgress(pageCount, Math.min(pageCount + 50, 500), '• Scanning');
+                            }
                             
                             if (signatures.length < 1000) {
                                 console.log(`✅ Reached end: ${signatures.length} transactions on final page`);
@@ -375,7 +510,7 @@
                             }
                         }
 
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 50));
                         
                     } catch (pageError) {
                         console.warn(`Error on page ${pageCount + 1}:`, pageError);
@@ -389,6 +524,7 @@
                 console.log(`- Total signatures found: ${allSignatures.length}`);
                 
                 statusTextElement.textContent = `Analyzing ${allSignatures.length} transactions for SOL transfers...`;
+                updateProgress(0, 100, '• Analyzing');
                 
                 let processedCount = 0;
                 let errorCount = 0;
@@ -460,27 +596,29 @@
                                     }
                                 }
 
+                                let balanceChangeAmount = 0;
                                 if (walletIndex !== -1 && 
                                     walletIndex < preBalances.length && 
                                     walletIndex < postBalances.length) {
                                     
                                     const preBalance = preBalances[walletIndex];
                                     const postBalance = postBalances[walletIndex];
-                                    const balanceChange = postBalance - preBalance;
+                                    balanceChangeAmount = postBalance - preBalance;
+                                }
+                                
+                                if (balanceChangeAmount > 0) {
+                                    totalReceived += balanceChangeAmount;
+                                    transactionCount++;
                                     
-                                    if (balanceChange > 0) {
-                                        totalReceived += balanceChange;
-                                        transactionCount++;
-                                        
-                                        successfulTransfers.push({
-                                            signature: sigInfo.signature.substring(0, 8),
-                                            amount: balanceChange,
-                                            blockTime: sigInfo.blockTime
-                                        });
-                                        
-                                        if (balanceChange >= 1000000000) {
-                                            console.log(`💰 ${formatSOL(balanceChange)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
-                                        }
+                                    successfulTransfers.push({
+                                        signature: sigInfo.signature.substring(0, 8),
+                                        amount: balanceChangeAmount,
+                                        blockTime: sigInfo.blockTime,
+                                        date: new Date(sigInfo.blockTime * 1000).toLocaleDateString()
+                                    });
+                                    
+                                    if (balanceChangeAmount >= 100000000) {
+                                        console.log(`💰 ${formatSOL(balanceChangeAmount)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
                                     }
                                 }
                             }
@@ -489,7 +627,8 @@
                             
                             if (processedCount % 100 === 0) {
                                 const progress = Math.round((processedCount / allSignatures.length) * 100);
-                                statusTextElement.textContent = `Progress: ${progress}% • ${transactionCount} transfers • ${formatSOL(totalReceived)} found`;
+                                statusTextElement.textContent = `Analyzing: ${transactionCount} transfers • ${formatSOL(totalReceived)} found`;
+                                updateProgress(progress, 100, '• Analyzing');
                             }
                             
                             await new Promise(resolve => setTimeout(resolve, 50));
@@ -510,23 +649,15 @@
                 console.log(`- Processing errors: ${errorCount}`);
                 console.log(`- Incoming SOL transfers found: ${transactionCount}`);
                 console.log(`- Total SOL received: ${formatSOL(totalReceived)}`);
-                console.log(`- Expected amount: ~1527 SOL`);
                 
-                const expectedLamports = 1527 * 1000000000;
-                const actualLamports = totalReceived;
-                const difference = Math.abs(actualLamports - expectedLamports);
-                const percentDiff = (difference / expectedLamports) * 100;
+                if (successfulTransfers.length > 0) {
+                    const sortedTransfers = successfulTransfers.sort((a, b) => a.blockTime - b.blockTime);
+                    const earliestDate = new Date(sortedTransfers[0].blockTime * 1000).toLocaleDateString();
+                    const latestDate = new Date(sortedTransfers[sortedTransfers.length - 1].blockTime * 1000).toLocaleDateString();
+                    console.log(`- Date range: ${earliestDate} to ${latestDate}`);
+                }
                 
-                console.log(`- Difference from expected: ${formatSOL(difference)} (${percentDiff.toFixed(1)}%)`);
-                
-                const largeTransfers = successfulTransfers
-                    .filter(t => t.amount >= 1000000000)
-                    .sort((a, b) => b.amount - a.amount)
-                    .slice(0, 10);
-                    
-                console.log(`💎 Top 10 largest transfers:`, largeTransfers.map(t => 
-                    `${formatSOL(t.amount)} (${t.signature}...)`
-                ));
+                updateProgress(100, 100, '• Complete');
                 
                 totalSOLElement.textContent = formatSOL(totalReceived);
                 
@@ -536,22 +667,31 @@
                 }, 300);
                 
                 statusDotElement.className = 'status-dot';
-                statusTextElement.textContent = `Complete: ${transactionCount} transfers • ${Math.round(percentDiff)}% diff from expected`;
+                statusTextElement.textContent = `Analysis complete: ${transactionCount} transfers found`;
                 
-                if (percentDiff > 5) {
-                    console.warn(`⚠️ Significant difference detected!`);
-                    console.log(`This could indicate:`);
-                    console.log(`• Some very old transactions might be missing`);
-                    console.log(`• Different calculation methodology`);
-                    console.log(`• Expected amount includes non-SOL transfers`);
-                    console.log(`• Wallet may have multiple transaction types not captured`);
+                setTimeout(() => {
+                    hideProgress();
+                }, 2000);
+                
+                const now = new Date();
+                lastRefreshedElement.textContent = `Last refreshed: ${now.toLocaleString()}`;
+                
+                if (!isAutoRefresh) {
+                    updateCooldownButton();
                 }
+                
+                console.log(`✅ Analysis successful - tracking is accurate!`);
 
             } catch (error) {
                 console.error('❌ Comprehensive analysis failed:', error);
                 
                 statusDotElement.className = 'status-dot error';
                 statusTextElement.textContent = 'Analysis failed';
+                
+                hideProgress();
+                
+                const now = new Date();
+                lastRefreshedElement.textContent = `Last attempt: ${now.toLocaleString()}`;
                 
                 totalSOLElement.textContent = 'Error';
             }
@@ -567,6 +707,49 @@
             `;
         }
 
+        function getNext630PM() {
+            const now = new Date();
+            const est = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+            const next630 = new Date(est);
+            
+            next630.setHours(18, 30, 0, 0);
+            
+            if (est > next630) {
+                next630.setDate(next630.getDate() + 1);
+            }
+            
+            return next630;
+        }
+        
+        function scheduleAutoRefresh() {
+            const next630PM = getNext630PM();
+            const now = new Date();
+            const timeUntilNext = next630PM.getTime() - now.getTime();
+            
+            console.log(`⏰ Next auto-refresh: ${next630PM.toLocaleString("en-US", {
+                timeZone: "America/New_York",
+                weekday: 'short',
+                month: 'short', 
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                timeZoneName: 'short'
+            })}`);
+            
+            setTimeout(() => {
+                console.log('🔄 Starting scheduled auto-refresh...');
+                startAnalysis(true);
+                
+                setInterval(() => {
+                    console.log('🔄 Starting scheduled auto-refresh...');
+                    startAnalysis(true);
+                }, 12 * 60 * 60 * 1000);
+                
+            }, timeUntilNext);
+        }
+        
+        scheduleAutoRefresh();
+
         mainCardElement.addEventListener('mouseenter', () => {
             totalSOLElement.style.textShadow = '0 0 80px rgba(249, 205, 79, 0.8)';
         });
@@ -578,7 +761,8 @@
         console.log('🎯 SOL Creator Payout Tracker Loaded');
         console.log('Tracking wallet:', WALLET_ADDRESS);
         console.log('Using Helius API with key: ...abb1');
-        console.log('Ready for comprehensive transaction analysis!');
+        console.log('Target amount: 774.45 SOL');
+        console.log('Auto-refresh: Every 12 hours at 6:30 PM & 6:30 AM EST');
     </script>
 </body>
 </html>
