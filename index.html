@@ -325,7 +325,7 @@
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
-            statusTextElement.textContent = 'Using enhanced analysis...';
+            statusTextElement.textContent = 'Scanning for simple SOL transfers...';
             errorMessageElement.style.display = 'none';
             mainCardElement.classList.add('loading');
             
@@ -336,130 +336,109 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Analyzing...
+                Scanning...
             `;
 
             try {
-                statusTextElement.textContent = 'Using Helius enhanced transaction analysis...';
+                statusTextElement.textContent = 'Getting complete transaction history (simple SOL transfers)...';
                 
-                // Method 1: Try Helius enhanced getAssetsByOwner (if available)
-                let totalSOLFound = 0;
-                let methodUsed = "Standard RPC";
-                
-                try {
-                    // Use Helius's enhanced transaction history API
-                    const enhancedResponse = await fetch(SOLANA_RPC_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            jsonrpc: '2.0',
-                            id: 1,
-                            method: 'getSignaturesForAddress',
-                            params: [
-                                WALLET_ADDRESS,
-                                { 
-                                    limit: 1000,
-                                    commitment: 'confirmed'
-                                }
-                            ]
-                        })
-                    });
-
-                    const enhancedData = await enhancedResponse.json();
-                    if (enhancedData.result && enhancedData.result.length > 0) {
-                        console.log(`Found ${enhancedData.result.length} signatures with enhanced API`);
-                        methodUsed = "Helius Enhanced";
-                    }
-                } catch (enhancedError) {
-                    console.log('Enhanced API not available, using comprehensive analysis');
-                }
-
-                // Method 2: Comprehensive transaction analysis with better logic
-                statusTextElement.textContent = 'Getting complete transaction history...';
-                
+                // Get ALL transaction signatures - for simple transfers, this should be reliable
                 let allSignatures = [];
                 let before = null;
                 let hasMore = true;
                 let pageCount = 0;
-                const maxPages = 50; // Increased significantly for complete history
+                const maxPages = 200; // Increased for complete history since transfers are simple
                 
-                // Get comprehensive transaction history - go much deeper
-                while (hasMore && pageCount < 100) { // Significantly increased for complete history
-                    const params = [WALLET_ADDRESS, { 
-                        limit: 1000,
-                        commitment: 'confirmed'
-                    }];
-                    if (before) {
-                        params[1].before = before;
-                    }
-
-                    const signaturesResponse = await fetch(SOLANA_RPC_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            jsonrpc: '2.0',
-                            id: 1,
-                            method: 'getSignaturesForAddress',
-                            params: params
-                        })
-                    });
-
-                    const signaturesData = await signaturesResponse.json();
-                    
-                    if (signaturesData.error || !signaturesData.result) {
-                        console.warn('Error or no data in signatures response:', signaturesData.error);
-                        break;
-                    }
-
-                    const signatures = signaturesData.result;
-                    
-                    if (signatures.length === 0) {
-                        console.log('No more signatures found, reached end of history');
-                        hasMore = false;
-                    } else {
-                        allSignatures.push(...signatures);
-                        before = signatures[signatures.length - 1].signature;
-                        pageCount++;
-                        
-                        statusTextElement.textContent = `Deep scan: ${allSignatures.length} transactions (${pageCount}/100 pages)`;
-                        
-                        // If we got less than 1000, we've reached the end
-                        if (signatures.length < 1000) {
-                            console.log(`Reached end: got ${signatures.length} signatures on page ${pageCount}`);
-                            hasMore = false;
+                // Get comprehensive transaction history with better error handling
+                while (hasMore && pageCount < maxPages) {
+                    try {
+                        const params = [WALLET_ADDRESS, { 
+                            limit: 1000,
+                            commitment: 'finalized'  // Changed to finalized for consistency
+                        }];
+                        if (before) {
+                            params[1].before = before;
                         }
-                    }
 
-                    // Small delay between pages to respect rate limits
-                    await new Promise(resolve => setTimeout(resolve, 60));
+                        const signaturesResponse = await fetch(SOLANA_RPC_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                jsonrpc: '2.0',
+                                id: 1,
+                                method: 'getSignaturesForAddress',
+                                params: params
+                            })
+                        });
+
+                        if (!signaturesResponse.ok) {
+                            throw new Error(`HTTP ${signaturesResponse.status}: ${signaturesResponse.statusText}`);
+                        }
+
+                        const signaturesData = await signaturesResponse.json();
+                        
+                        if (signaturesData.error) {
+                            console.warn('API Error on page', pageCount + 1, ':', signaturesData.error);
+                            break;
+                        }
+
+                        const signatures = signaturesData.result || [];
+                        
+                        if (signatures.length === 0) {
+                            console.log('No more signatures found, reached end of history');
+                            hasMore = false;
+                        } else {
+                            allSignatures.push(...signatures);
+                            before = signatures[signatures.length - 1].signature;
+                            pageCount++;
+                            
+                            statusTextElement.textContent = `Found ${allSignatures.length} transactions (page ${pageCount})`;
+                            
+                            // If we got less than 1000, we've reached the end
+                            if (signatures.length < 1000) {
+                                console.log(`Reached end: got ${signatures.length} signatures on page ${pageCount}`);
+                                hasMore = false;
+                            }
+                        }
+
+                        // Longer delay to avoid rate limiting issues
+                        await new Promise(resolve => setTimeout(resolve, 150));
+                        
+                    } catch (pageError) {
+                        console.warn(`Error on page ${pageCount + 1}:`, pageError);
+                        // Continue to next page instead of breaking
+                        pageCount++;
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
                 }
 
-                console.log(`=== COMPREHENSIVE SCAN RESULTS ===`);
+                console.log(`=== SIMPLE SOL TRANSFER ANALYSIS ===`);
                 console.log(`Total pages scanned: ${pageCount}`);
                 console.log(`Total signatures found: ${allSignatures.length}`);
 
-                // Analyze transactions with improved logic
+                // Since these are simple SOL transfers, use a straightforward balance change analysis
                 let totalReceived = 0;
                 let incomingCount = 0;
                 let processedCount = 0;
-                let errorCount = 0;
+                let skippedCount = 0;
+                let successfulTransactions = [];
                 
-                statusTextElement.textContent = 'Analyzing all transactions for SOL transfers...';
+                statusTextElement.textContent = 'Analyzing simple SOL transfers...';
                 
-                const batchSize = 6; // Smaller batches for reliability
+                const batchSize = 3; // Smaller batches for reliability with simple transfers
                 
                 for (let i = 0; i < allSignatures.length; i += batchSize) {
                     const batch = allSignatures.slice(i, i + batchSize);
                     
-                    const batchPromises = batch.map(async (sigInfo, index) => {
+                    // Process each transaction in sequence (not parallel) for consistency
+                    for (const sigInfo of batch) {
                         try {
                             // Skip failed transactions
                             if (sigInfo.err) {
-                                return { amount: 0, isIncoming: false, error: 'Transaction failed' };
+                                skippedCount++;
+                                continue;
                             }
                             
                             const txResponse = await fetch(SOLANA_RPC_URL, {
@@ -474,35 +453,35 @@
                                     params: [
                                         sigInfo.signature,
                                         { 
-                                            encoding: 'jsonParsed',  // Changed to jsonParsed for better data
+                                            encoding: 'json',
                                             maxSupportedTransactionVersion: 0,
-                                            commitment: 'confirmed'
+                                            commitment: 'finalized'
                                         }
                                     ]
                                 })
                             });
 
+                            if (!txResponse.ok) {
+                                skippedCount++;
+                                continue;
+                            }
+
                             const txData = await txResponse.json();
                             
                             if (txData.error) {
-                                return { amount: 0, isIncoming: false, error: txData.error.message };
+                                skippedCount++;
+                                continue;
                             }
                             
                             if (txData.result && txData.result.meta && !txData.result.meta.err) {
-                                const meta = txData.result.meta;
-                                
-                                // Method A: Check balance changes (original approach)
-                                const preBalances = meta.preBalances;
-                                const postBalances = meta.postBalances;
+                                const preBalances = txData.result.meta.preBalances;
+                                const postBalances = txData.result.meta.postBalances;
                                 const accountKeys = txData.result.transaction.message.accountKeys;
-                                
-                                let balanceChangeAmount = 0;
-                                
-                                // Find wallet index
+
+                                // Find wallet index - simple approach for simple transfers
                                 let walletIndex = -1;
                                 for (let j = 0; j < accountKeys.length; j++) {
-                                    const key = typeof accountKeys[j] === 'string' ? accountKeys[j] : accountKeys[j].pubkey;
-                                    if (key === WALLET_ADDRESS) {
+                                    if (accountKeys[j] === WALLET_ADDRESS) {
                                         walletIndex = j;
                                         break;
                                     }
@@ -514,109 +493,46 @@
                                     
                                     const preBalance = preBalances[walletIndex];
                                     const postBalance = postBalances[walletIndex];
-                                    balanceChangeAmount = postBalance - preBalance;
-                                }
-                                
-                                // Method B: Check parsed instructions for transfers TO our wallet
-                                let transferAmount = 0;
-                                if (txData.result.transaction.message.instructions) {
-                                    for (const instruction of txData.result.transaction.message.instructions) {
-                                        if (instruction.parsed && 
-                                            instruction.parsed.type === 'transfer' &&
-                                            instruction.parsed.info &&
-                                            instruction.parsed.info.destination === WALLET_ADDRESS) {
-                                            transferAmount += parseInt(instruction.parsed.info.lamports || 0);
-                                        }
-                                    }
-                                }
-                                
-                                // Method C: Check inner instructions for program-based transfers
-                                let innerTransferAmount = 0;
-                                if (meta.innerInstructions) {
-                                    for (const innerInstructionSet of meta.innerInstructions) {
-                                        for (const innerInstruction of innerInstructionSet.instructions) {
-                                            if (innerInstruction.parsed && 
-                                                innerInstruction.parsed.type === 'transfer' &&
-                                                innerInstruction.parsed.info &&
-                                                innerInstruction.parsed.info.destination === WALLET_ADDRESS) {
-                                                innerTransferAmount += parseInt(innerInstruction.parsed.info.lamports || 0);
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                // Method D: Check for system program transfers in postTokenBalances
-                                let systemTransferAmount = 0;
-                                if (meta.postTokenBalances && meta.preTokenBalances) {
-                                    // This would handle SPL token transfers, but we're focusing on SOL
-                                    // Keep this for potential future enhancement
-                                }
-                                
-                                // Use the largest amount found from any method
-                                const finalAmount = Math.max(
-                                    balanceChangeAmount, 
-                                    transferAmount, 
-                                    innerTransferAmount, 
-                                    systemTransferAmount
-                                );
-                                
-                                if (finalAmount > 0) {
-                                    let method = 'balance';
-                                    if (transferAmount === finalAmount) method = 'parsed';
-                                    if (innerTransferAmount === finalAmount) method = 'inner';
-                                    if (systemTransferAmount === finalAmount) method = 'system';
+                                    const balanceChange = postBalance - preBalance;
                                     
-                                    return { 
-                                        amount: finalAmount, 
-                                        isIncoming: true, 
-                                        method: method,
-                                        signature: sigInfo.signature.substring(0, 8),
-                                        details: {
-                                            balance: balanceChangeAmount,
-                                            transfer: transferAmount,
-                                            inner: innerTransferAmount,
-                                            system: systemTransferAmount
+                                    // Only count positive balance changes (incoming SOL)
+                                    if (balanceChange > 0) {
+                                        totalReceived += balanceChange;
+                                        incomingCount++;
+                                        
+                                        successfulTransactions.push({
+                                            signature: sigInfo.signature.substring(0, 8),
+                                            amount: balanceChange,
+                                            blockTime: sigInfo.blockTime
+                                        });
+                                        
+                                        // Log all incoming transfers for verification
+                                        if (balanceChange > 100000000) { // >0.1 SOL
+                                            console.log(`✅ ${formatSOL(balanceChange)} from ${sigInfo.signature.substring(0, 8)}...`);
                                         }
-                                    };
+                                    }
                                 }
+                            } else {
+                                skippedCount++;
                             }
-                            return { amount: 0, isIncoming: false };
+                            
+                            // Small delay between individual transactions
+                            await new Promise(resolve => setTimeout(resolve, 50));
                             
                         } catch (txError) {
-                            return { amount: 0, isIncoming: false, error: txError.message };
+                            console.warn('Transaction error:', txError.message);
+                            skippedCount++;
                         }
-                    });
-
-                    // Process batch
-                    const batchResults = await Promise.all(batchPromises);
-                    
-                    for (const result of batchResults) {
-                        if (result.error) {
-                            errorCount++;
-                        } else if (result.isIncoming) {
-                            totalReceived += result.amount;
-                            incomingCount++;
-                            
-                            // Log transfers over 1 SOL for debugging
-                            if (result.amount > 1000000000) { // >1 SOL
-                                console.log(`Transfer: ${formatSOL(result.amount)} via ${result.method} (${result.signature}...)`, result.details);
-                            }
-                            
-                            // Track large transfers separately for analysis
-                            if (result.amount > 10 * 1000000000) { // >10 SOL
-                                console.log(`🔥 LARGE: ${formatSOL(result.amount)} via ${result.method}`);
-                            }
-                        }
+                        
+                        processedCount++;
                     }
-                    
-                    processedCount += batch.length;
                     
                     // Update progress
                     const progress = Math.round((processedCount / allSignatures.length) * 100);
-                    statusTextElement.textContent = `Analyzing: ${progress}% • ${incomingCount} deposits found • ${formatSOL(totalReceived)}`;
+                    statusTextElement.textContent = `Processing: ${progress}% • ${incomingCount} transfers • ${formatSOL(totalReceived)}`;
 
                     // Delay between batches
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
 
                 // Get current balance for reference
@@ -636,59 +552,39 @@
                 const balanceData = await balanceResponse.json();
                 const currentBalance = balanceData.result?.value || 0;
 
-                // Final results and display update
-                console.log(`=== FINAL ANALYSIS RESULTS ===`);
-                console.log(`Method used: ${methodUsed}`);
+                // Final results
+                console.log(`=== FINAL SIMPLE SOL TRANSFER RESULTS ===`);
                 console.log(`Total transactions scanned: ${allSignatures.length}`);
                 console.log(`Transactions processed: ${processedCount}`);
-                console.log(`Incoming transfers found: ${incomingCount}`);
-                console.log(`Errors encountered: ${errorCount}`);
+                console.log(`Transactions skipped: ${skippedCount}`);
+                console.log(`Incoming SOL transfers found: ${incomingCount}`);
                 console.log(`Total SOL received: ${formatSOL(totalReceived)}`);
                 console.log(`Current wallet balance: ${formatSOL(currentBalance)}`);
                 console.log(`Expected: ~1527 SOL (${(1527 * 1000000000)} lamports)`);
+                
+                // Show some sample successful transactions
+                console.log(`Sample transfers:`, successfulTransactions.slice(0, 5));
                 
                 const expectedLamports = 1527 * 1000000000;
                 const difference = Math.abs(totalReceived - expectedLamports);
                 const percentDiff = (difference / expectedLamports) * 100;
                 console.log(`Difference from expected: ${percentDiff.toFixed(1)}%`);
-                
-                if (percentDiff > 10) {
-                    console.warn(`⚠️ Large discrepancy detected! This could mean:`);
-                    console.log(`• Some transaction types aren't being captured`);
-                    console.log(`• Different calculation methodology needed`);
-                    console.log(`• Historical data limitations`);
-                    console.log(`• Expected amount includes different transaction types`);
-                }
 
-                // CRITICAL: Update the display with the calculated total
+                // Update display with final calculated amount
                 totalSOLReceived = totalReceived;
                 
-                // Force update the display element
                 const displayAmount = formatSOL(totalReceived);
                 totalSOLElement.textContent = displayAmount;
-                totalSOLElement.style.opacity = '0';
                 
-                // Animate the update to make it visible
-                setTimeout(() => {
-                    totalSOLElement.style.transition = 'all 0.5s ease';
-                    totalSOLElement.style.opacity = '1';
-                    totalSOLElement.style.transform = 'scale(1.05)';
-                    
-                    setTimeout(() => {
-                        totalSOLElement.style.transform = 'scale(1)';
-                    }, 200);
-                }, 100);
-                
-                console.log(`Display updated to: ${displayAmount}`);
-                console.log(`Element content: ${totalSOLElement.textContent}`);
+                console.log(`✅ DISPLAY UPDATED TO: ${displayAmount}`);
                 
                 // Success status
                 statusDotElement.className = 'status-dot';
-                statusTextElement.textContent = `Analysis complete: ${incomingCount} deposits • ${Math.round(percentDiff)}% diff from expected`;
+                statusTextElement.textContent = `Complete: ${incomingCount} simple transfers • ${Math.round(percentDiff)}% diff`;
                 mainCardElement.classList.remove('loading');
 
             } catch (error) {
-                console.error('Error in comprehensive analysis:', error);
+                console.error('Error in simple SOL transfer analysis:', error);
                 
                 // Error status
                 statusDotElement.className = 'status-dot error';
