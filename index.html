@@ -325,7 +325,7 @@
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
-            statusTextElement.textContent = 'Fetching latest data...';
+            statusTextElement.textContent = 'Getting wallet data...';
             errorMessageElement.style.display = 'none';
             mainCardElement.classList.add('loading');
             
@@ -336,12 +336,164 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Refreshing...
+                Loading...
             `;
 
             try {
-                // Fetch recent transaction signatures
-                const signaturesResponse = await fetch(SOLANA_RPC_URL, {
+                statusTextElement.textContent = 'Fetching complete transaction history...';
+                
+                // Get ALL transaction signatures for complete history
+                let allSignatures = [];
+                let before = null;
+                let hasMore = true;
+                let pageCount = 0;
+                
+                while (hasMore && pageCount < 20) { // Increased pages for complete history
+                    const params = [WALLET_ADDRESS, { limit: 1000 }];
+                    if (before) {
+                        params[1].before = before;
+                    }
+
+                    const signaturesResponse = await fetch(SOLANA_RPC_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: 1,
+                            method: 'getSignaturesForAddress',
+                            params: params
+                        })
+                    });
+
+                    const signaturesData = await signaturesResponse.json();
+                    
+                    if (signaturesData.error) {
+                        console.warn('Error fetching signatures:', signaturesData.error);
+                        break;
+                    }
+
+                    const signatures = signaturesData.result || [];
+                    
+                    if (signatures.length === 0) {
+                        hasMore = false;
+                    } else {
+                        allSignatures.push(...signatures);
+                        before = signatures[signatures.length - 1].signature;
+                        pageCount++;
+                        
+                        statusTextElement.textContent = `Found ${allSignatures.length} transactions (page ${pageCount})...`;
+                        
+                        if (signatures.length < 1000) {
+                            hasMore = false;
+                        }
+                    }
+
+                    // Small delay between pages
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+
+                console.log(`Total signatures found: ${allSignatures.length}`);
+
+                // Calculate total received SOL from ALL transactions
+                let totalReceived = 0;
+                let processedCount = 0;
+                let incomingTransactions = 0;
+                
+                statusTextElement.textContent = 'Analyzing all transactions for incoming SOL...';
+                
+                // Process ALL transactions in manageable batches
+                const batchSize = 8;
+                
+                for (let i = 0; i < allSignatures.length; i += batchSize) {
+                    const batch = allSignatures.slice(i, i + batchSize);
+                    
+                    const batchPromises = batch.map(async (sigInfo) => {
+                        try {
+                            // Skip failed transactions immediately
+                            if (sigInfo.err) return { amount: 0, isIncoming: false };
+                            
+                            const txResponse = await fetch(SOLANA_RPC_URL, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    jsonrpc: '2.0',
+                                    id: 1,
+                                    method: 'getTransaction',
+                                    params: [
+                                        sigInfo.signature,
+                                        { 
+                                            encoding: 'json', 
+                                            maxSupportedTransactionVersion: 0,
+                                            commitment: 'confirmed'
+                                        }
+                                    ]
+                                })
+                            });
+
+                            const txData = await txResponse.json();
+                            
+                            if (txData.result && txData.result.meta && !txData.result.meta.err) {
+                                const preBalances = txData.result.meta.preBalances;
+                                const postBalances = txData.result.meta.postBalances;
+                                const accountKeys = txData.result.transaction.message.accountKeys;
+
+                                // Find wallet index in account keys
+                                let walletIndex = -1;
+                                for (let j = 0; j < accountKeys.length; j++) {
+                                    if (accountKeys[j] === WALLET_ADDRESS) {
+                                        walletIndex = j;
+                                        break;
+                                    }
+                                }
+
+                                if (walletIndex !== -1 && 
+                                    walletIndex < preBalances.length && 
+                                    walletIndex < postBalances.length) {
+                                    
+                                    const preBalance = preBalances[walletIndex];
+                                    const postBalance = postBalances[walletIndex];
+                                    const balanceChange = postBalance - preBalance;
+                                    
+                                    // Only count positive balance changes (incoming SOL)
+                                    if (balanceChange > 0) {
+                                        return { amount: balanceChange, isIncoming: true };
+                                    }
+                                }
+                            }
+                            return { amount: 0, isIncoming: false };
+                        } catch (txError) {
+                            console.warn('Error processing transaction:', txError);
+                            return { amount: 0, isIncoming: false };
+                        }
+                    });
+
+                    // Wait for batch to complete
+                    const batchResults = await Promise.all(batchPromises);
+                    
+                    // Sum up the results
+                    for (const result of batchResults) {
+                        if (result.isIncoming) {
+                            totalReceived += result.amount;
+                            incomingTransactions++;
+                        }
+                    }
+                    
+                    processedCount += batch.length;
+                    
+                    // Update progress
+                    const progress = Math.round((processedCount / allSignatures.length) * 100);
+                    statusTextElement.textContent = `Analyzing transactions... ${progress}% (${incomingTransactions} incoming found)`;
+
+                    // Delay between batches
+                    await new Promise(resolve => setTimeout(resolve, 120));
+                }
+
+                // Also get current balance for comparison
+                const balanceResponse = await fetch(SOLANA_RPC_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -349,82 +501,43 @@
                     body: JSON.stringify({
                         jsonrpc: '2.0',
                         id: 1,
-                        method: 'getSignaturesForAddress',
-                        params: [
-                            WALLET_ADDRESS,
-                            { limit: 100 }
-                        ]
+                        method: 'getBalance',
+                        params: [WALLET_ADDRESS]
                     })
                 });
 
-                const signaturesData = await signaturesResponse.json();
-                
-                if (signaturesData.error) {
-                    throw new Error(signaturesData.error.message);
-                }
+                const balanceData = await balanceResponse.json();
+                const currentBalance = balanceData.result?.value || 0;
 
-                const signatures = signaturesData.result || [];
-                let totalReceived = 0;
+                // Log detailed information
+                console.log(`=== WALLET ANALYSIS COMPLETE ===`);
+                console.log(`Total transactions analyzed: ${allSignatures.length}`);
+                console.log(`Incoming transactions found: ${incomingTransactions}`);
+                console.log(`Total SOL received: ${formatSOL(totalReceived)}`);
+                console.log(`Current wallet balance: ${formatSOL(currentBalance)}`);
+                console.log(`Expected: ~1527 SOL`);
 
-                // Process each transaction to find incoming SOL
-                for (const sigInfo of signatures.slice(0, 50)) { // Process more transactions with Helius
-                    try {
-                        const txResponse = await fetch(SOLANA_RPC_URL, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                jsonrpc: '2.0',
-                                id: 1,
-                                method: 'getTransaction',
-                                params: [
-                                    sigInfo.signature,
-                                    { encoding: 'json', maxSupportedTransactionVersion: 0 }
-                                ]
-                            })
-                        });
-
-                        const txData = await txResponse.json();
-                        
-                        if (txData.result && txData.result.meta) {
-                            const preBalances = txData.result.meta.preBalances;
-                            const postBalances = txData.result.meta.postBalances;
-                            const accountKeys = txData.result.transaction.message.accountKeys;
-
-                            // Find our wallet's index in the account keys
-                            let walletIndex = -1;
-                            for (let i = 0; i < accountKeys.length; i++) {
-                                if (accountKeys[i] === WALLET_ADDRESS) {
-                                    walletIndex = i;
-                                    break;
-                                }
-                            }
-
-                            // If wallet found and balance increased, add to total
-                            if (walletIndex !== -1 && walletIndex < preBalances.length && walletIndex < postBalances.length) {
-                                const balanceChange = postBalances[walletIndex] - preBalances[walletIndex];
-                                if (balanceChange > 0) {
-                                    totalReceived += balanceChange;
-                                }
-                            }
-                        }
-                    } catch (txError) {
-                        console.warn('Error processing transaction:', txError);
-                    }
-
-                    // Reduced delay with Helius premium service
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                }
-
-                // Update display
+                // Use the calculated total from transactions (this should be the most accurate)
                 totalSOLReceived = totalReceived;
                 totalSOLElement.textContent = formatSOL(totalSOLReceived);
                 
-                // Success status
+                // Success status with detailed info
                 statusDotElement.className = 'status-dot';
-                statusTextElement.textContent = `Live via Helius • ${new Date().toLocaleTimeString()}`;
+                statusTextElement.textContent = `Complete: ${incomingTransactions} deposits • ${allSignatures.length} total txs • ${new Date().toLocaleTimeString()}`;
                 mainCardElement.classList.remove('loading');
+
+                // Show comparison if significantly different from expected
+                const expectedSOL = 1527 * 1000000000; // Convert to lamports
+                const difference = Math.abs(totalReceived - expectedSOL);
+                const percentDiff = (difference / expectedSOL) * 100;
+                
+                if (percentDiff > 5) {
+                    console.warn(`⚠️ Significant difference from expected amount: ${percentDiff.toFixed(1)}%`);
+                    console.log(`This could indicate:`);
+                    console.log(`- Some transactions aren't being captured`);
+                    console.log(`- Different calculation method needed`);
+                    console.log(`- Expected amount includes outgoing transfers`);
+                }
 
             } catch (error) {
                 console.error('Error fetching wallet data:', error);
@@ -432,12 +545,12 @@
                 // Error status
                 statusDotElement.className = 'status-dot error';
                 statusTextElement.textContent = 'Connection error';
-                errorMessageElement.textContent = 'Unable to fetch data. Try refreshing or check back later.';
+                errorMessageElement.textContent = `Unable to fetch wallet data: ${error.message}`;
                 errorMessageElement.style.display = 'block';
                 mainCardElement.classList.remove('loading');
                 
-                // Fallback to mock data for demo
-                totalSOLElement.textContent = '2,330.00 SOL';
+                // Show error state
+                totalSOLElement.textContent = 'Error';
             }
 
             // Reset refresh button state
