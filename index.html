@@ -385,8 +385,8 @@
                 let pageCount = 0;
                 const maxPages = 50; // Increased significantly for complete history
                 
-                // Get comprehensive transaction history
-                while (hasMore && pageCount < maxPages) {
+                // Get comprehensive transaction history - go much deeper
+                while (hasMore && pageCount < 100) { // Significantly increased for complete history
                     const params = [WALLET_ADDRESS, { 
                         limit: 1000,
                         commitment: 'confirmed'
@@ -425,7 +425,7 @@
                         before = signatures[signatures.length - 1].signature;
                         pageCount++;
                         
-                        statusTextElement.textContent = `Scanning history: ${allSignatures.length} transactions (${pageCount}/${maxPages} pages)`;
+                        statusTextElement.textContent = `Deep scan: ${allSignatures.length} transactions (${pageCount}/100 pages)`;
                         
                         // If we got less than 1000, we've reached the end
                         if (signatures.length < 1000) {
@@ -435,7 +435,7 @@
                     }
 
                     // Small delay between pages to respect rate limits
-                    await new Promise(resolve => setTimeout(resolve, 80));
+                    await new Promise(resolve => setTimeout(resolve, 60));
                 }
 
                 console.log(`=== COMPREHENSIVE SCAN RESULTS ===`);
@@ -530,15 +530,53 @@
                                     }
                                 }
                                 
-                                // Use the larger of the two methods
-                                const finalAmount = Math.max(balanceChangeAmount, transferAmount);
+                                // Method C: Check inner instructions for program-based transfers
+                                let innerTransferAmount = 0;
+                                if (meta.innerInstructions) {
+                                    for (const innerInstructionSet of meta.innerInstructions) {
+                                        for (const innerInstruction of innerInstructionSet.instructions) {
+                                            if (innerInstruction.parsed && 
+                                                innerInstruction.parsed.type === 'transfer' &&
+                                                innerInstruction.parsed.info &&
+                                                innerInstruction.parsed.info.destination === WALLET_ADDRESS) {
+                                                innerTransferAmount += parseInt(innerInstruction.parsed.info.lamports || 0);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Method D: Check for system program transfers in postTokenBalances
+                                let systemTransferAmount = 0;
+                                if (meta.postTokenBalances && meta.preTokenBalances) {
+                                    // This would handle SPL token transfers, but we're focusing on SOL
+                                    // Keep this for potential future enhancement
+                                }
+                                
+                                // Use the largest amount found from any method
+                                const finalAmount = Math.max(
+                                    balanceChangeAmount, 
+                                    transferAmount, 
+                                    innerTransferAmount, 
+                                    systemTransferAmount
+                                );
                                 
                                 if (finalAmount > 0) {
+                                    let method = 'balance';
+                                    if (transferAmount === finalAmount) method = 'parsed';
+                                    if (innerTransferAmount === finalAmount) method = 'inner';
+                                    if (systemTransferAmount === finalAmount) method = 'system';
+                                    
                                     return { 
                                         amount: finalAmount, 
                                         isIncoming: true, 
-                                        method: transferAmount > balanceChangeAmount ? 'parsed' : 'balance',
-                                        signature: sigInfo.signature.substring(0, 8)
+                                        method: method,
+                                        signature: sigInfo.signature.substring(0, 8),
+                                        details: {
+                                            balance: balanceChangeAmount,
+                                            transfer: transferAmount,
+                                            inner: innerTransferAmount,
+                                            system: systemTransferAmount
+                                        }
                                     };
                                 }
                             }
@@ -558,8 +596,15 @@
                         } else if (result.isIncoming) {
                             totalReceived += result.amount;
                             incomingCount++;
-                            if (result.amount > 10 * 1000000000) { // Log large transfers (>10 SOL)
-                                console.log(`Large transfer: ${formatSOL(result.amount)} via ${result.method} (${result.signature}...)`);
+                            
+                            // Log transfers over 1 SOL for debugging
+                            if (result.amount > 1000000000) { // >1 SOL
+                                console.log(`Transfer: ${formatSOL(result.amount)} via ${result.method} (${result.signature}...)`, result.details);
+                            }
+                            
+                            // Track large transfers separately for analysis
+                            if (result.amount > 10 * 1000000000) { // >10 SOL
+                                console.log(`🔥 LARGE: ${formatSOL(result.amount)} via ${result.method}`);
                             }
                         }
                     }
