@@ -1,58 +1,4 @@
-// Manual update function
-        function updateManual() {
-            const manualInput = document.getElementById('manualAmount');
-            const amount = parseFloat(manualInput.value);
-            
-            if (isNaN(amount) || amount < 0) {
-                alert('Please enter a valid SOL amount');
-                return;
-            }
-            
-            // Update display
-            totalSOLElement.textContent = `${amount.toFixed(2)} SOL`;
-            
-            // Update status
-            statusDotElement.className = 'status-dot';
-            statusTextElement.textContent = `Manually updated: ${new Date().toLocaleTimeString()}`;
-            
-            // Animation
-            totalSOLElement.style.transform = 'scale(1.1)';
-            setTimeout(() => {
-                totalSOLElement.style.transform = 'scale(1)';
-            }, 200);
-            
-            console.log(`✅ Manually updated to: ${amount.toFixed(2)} SOL`);
-            
-            // Clear input
-            manualInput.value = '';
-        }        
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #f9cd4f;
-            animation: pulse 2s ease-in-out infinite;
-        }
-        
-        .status-dot.loading {
-            background: #ff6b6b;
-        }
-        
-        .status-dot.error {
-            background: #ff4757;
-            animation: none;
-        }
-        
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 0.6;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 1;
-                transform: scale(1.2);
-            }
-        }<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -211,10 +157,6 @@
             box-shadow: 0 8px 25px rgba(249, 205, 79, 0.2);
         }
         
-        .refresh-button:active {
-            transform: translateY(0px);
-        }
-        
         .refresh-button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -234,6 +176,34 @@
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f9cd4f;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .status-dot.loading {
+            background: #ff6b6b;
+        }
+        
+        .status-dot.error {
+            background: #ff4757;
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 0.6;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.2);
+            }
         }
         
         @media (max-width: 768px) {
@@ -267,7 +237,6 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <h1 class="title">
             <span class="word-white">Total</span>
             <span class="word-gold"> SOL </span>
@@ -277,7 +246,6 @@
         </h1>
         <p class="subtitle">Real-time monitoring of SOL Paid to Creators</p>
 
-        <!-- Main SOL Display Card -->
         <div class="main-card" id="mainCard">
             <div class="icon-container">
                 <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,45 +255,40 @@
             </div>
             
             <div class="card-label">Total SOL Received</div>
-            <div class="sol-amount" id="totalSOL">1,527.00 SOL</div>
+            <div class="sol-amount" id="totalSOL">Ready</div>
             
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Ready for manual update</span>
+                <span id="statusText">Click button to start analysis</span>
             </div>
             
-            <button class="refresh-button" id="refreshButton" onclick="fetchBasicData()">
+            <button class="refresh-button" id="refreshButton" onclick="startAnalysis()">
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Deep Analysis
+                Start Analysis
             </button>
         </div>
     </div>
 
     <script>
-        // Configuration
         const WALLET_ADDRESS = 'DHUTZmXkySi4GRFP1nd4Js7CrN7fUbQHJUgLtor6Rubq';
         const SOLANA_RPC_URL = 'https://mainnet.helius-rpc.com/?api-key=333a0276-cabb-47ac-ab3f-6f1a2fbaabb1';
         
-        // DOM elements
         const totalSOLElement = document.getElementById('totalSOL');
         const statusDotElement = document.getElementById('statusDot');
         const statusTextElement = document.getElementById('statusText');
         const refreshButtonElement = document.getElementById('refreshButton');
         const mainCardElement = document.getElementById('mainCard');
 
-        // State
         let isLoading = false;
 
-        // Format SOL amount
         function formatSOL(lamports) {
             const sol = lamports / 1000000000;
             return `${sol.toFixed(2)} SOL`;
         }
 
-        // Comprehensive transaction analysis with new API key
-        async function fetchBasicData() {
+        async function startAnalysis() {
             if (isLoading) return;
             
             isLoading = true;
@@ -352,10 +315,9 @@
                 let hasMore = true;
                 let pageCount = 0;
                 
-                // PHASE 1: Get COMPLETE transaction history
                 statusTextElement.textContent = 'Scanning complete transaction history...';
                 
-                while (hasMore && pageCount < 200) { // Much deeper scan
+                while (hasMore && pageCount < 200) {
                     try {
                         const params = [WALLET_ADDRESS, { 
                             limit: 1000,
@@ -389,7 +351,7 @@
                         if (signaturesData.error) {
                             console.warn(`API Error on page ${pageCount + 1}:`, signaturesData.error);
                             if (signaturesData.error.code === 429) {
-                                await new Promise(resolve => setTimeout(resolve, 5000)); // Rate limit
+                                await new Promise(resolve => setTimeout(resolve, 5000));
                                 continue;
                             }
                             break;
@@ -413,7 +375,6 @@
                             }
                         }
 
-                        // Reasonable delay to avoid rate limits
                         await new Promise(resolve => setTimeout(resolve, 100));
                         
                     } catch (pageError) {
@@ -427,23 +388,19 @@
                 console.log(`- Pages scanned: ${pageCount}`);
                 console.log(`- Total signatures found: ${allSignatures.length}`);
                 
-                // PHASE 2: Analyze ALL transactions for incoming SOL
                 statusTextElement.textContent = `Analyzing ${allSignatures.length} transactions for SOL transfers...`;
                 
                 let processedCount = 0;
                 let errorCount = 0;
                 let successfulTransfers = [];
                 
-                // Process in smaller, more reliable batches
                 const batchSize = 5;
                 
                 for (let i = 0; i < allSignatures.length; i += batchSize) {
                     const batch = allSignatures.slice(i, i + batchSize);
                     
-                    // Process each transaction in the batch
                     for (const sigInfo of batch) {
                         try {
-                            // Skip failed transactions
                             if (sigInfo.err) {
                                 processedCount++;
                                 continue;
@@ -479,7 +436,6 @@
                             
                             if (txData.error) {
                                 if (txData.error.code === 429) {
-                                    // Rate limited, wait and retry
                                     await new Promise(resolve => setTimeout(resolve, 1000));
                                     continue;
                                 }
@@ -492,7 +448,6 @@
                                 const meta = txData.result.meta;
                                 const transaction = txData.result.transaction;
                                 
-                                // Method 1: Balance change analysis
                                 const preBalances = meta.preBalances;
                                 const postBalances = meta.postBalances;
                                 const accountKeys = transaction.message.accountKeys;
@@ -520,12 +475,10 @@
                                         successfulTransfers.push({
                                             signature: sigInfo.signature.substring(0, 8),
                                             amount: balanceChange,
-                                            blockTime: sigInfo.blockTime,
-                                            method: 'balance'
+                                            blockTime: sigInfo.blockTime
                                         });
                                         
-                                        // Log significant transfers
-                                        if (balanceChange >= 1000000000) { // >= 1 SOL
+                                        if (balanceChange >= 1000000000) {
                                             console.log(`💰 ${formatSOL(balanceChange)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
                                         }
                                     }
@@ -534,13 +487,11 @@
                             
                             processedCount++;
                             
-                            // Update progress every 100 transactions
                             if (processedCount % 100 === 0) {
                                 const progress = Math.round((processedCount / allSignatures.length) * 100);
                                 statusTextElement.textContent = `Progress: ${progress}% • ${transactionCount} transfers • ${formatSOL(totalReceived)} found`;
                             }
                             
-                            // Small delay between transactions
                             await new Promise(resolve => setTimeout(resolve, 50));
                             
                         } catch (txError) {
@@ -550,11 +501,9 @@
                         }
                     }
                     
-                    // Longer delay between batches
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
 
-                // PHASE 3: Results and verification
                 console.log(`📊 FINAL COMPREHENSIVE RESULTS:`);
                 console.log(`- Total transaction signatures: ${allSignatures.length}`);
                 console.log(`- Transactions processed: ${processedCount}`);
@@ -570,7 +519,6 @@
                 
                 console.log(`- Difference from expected: ${formatSOL(difference)} (${percentDiff.toFixed(1)}%)`);
                 
-                // Show sample of largest transfers
                 const largeTransfers = successfulTransfers
                     .filter(t => t.amount >= 1000000000)
                     .sort((a, b) => b.amount - a.amount)
@@ -580,16 +528,13 @@
                     `${formatSOL(t.amount)} (${t.signature}...)`
                 ));
                 
-                // Update display
                 totalSOLElement.textContent = formatSOL(totalReceived);
                 
-                // Animate update
                 totalSOLElement.style.transform = 'scale(1.1)';
                 setTimeout(() => {
                     totalSOLElement.style.transform = 'scale(1)';
                 }, 300);
                 
-                // Success status
                 statusDotElement.className = 'status-dot';
                 statusTextElement.textContent = `Complete: ${transactionCount} transfers • ${Math.round(percentDiff)}% diff from expected`;
                 
@@ -611,7 +556,6 @@
                 totalSOLElement.textContent = 'Error';
             }
 
-            // Reset button
             isLoading = false;
             refreshButtonElement.disabled = false;
             refreshButtonElement.classList.remove('loading');
@@ -619,48 +563,10 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Deep Analysis
+                Start Analysis
             `;
         }
 
-        // Manual update function
-        function updateManual() {
-            const manualInput = document.getElementById('manualAmount');
-            const amount = parseFloat(manualInput.value);
-            
-            if (isNaN(amount) || amount < 0) {
-                alert('Please enter a valid SOL amount');
-                return;
-            }
-            
-            // Update display
-            totalSOLElement.textContent = `${amount.toFixed(2)} SOL`;
-            
-            // Update status
-            statusDotElement.className = 'status-dot';
-            statusTextElement.textContent = `Manually updated: ${new Date().toLocaleTimeString()}`;
-            
-            // Animation
-            totalSOLElement.style.transform = 'scale(1.1)';
-            setTimeout(() => {
-                totalSOLElement.style.transform = 'scale(1)';
-            }, 200);
-            
-            console.log(`✅ Manually updated to: ${amount.toFixed(2)} SOL`);
-            
-            // Clear input
-            manualInput.value = '';
-        }
-
-        // Initial load
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('🎯 SOL Creator Payout Tracker Loaded');
-            console.log('Tracking wallet:', WALLET_ADDRESS);
-            console.log('Using Helius API with key: ...abb1');
-            console.log('Ready for comprehensive transaction analysis!');
-        });
-
-        // Hover effects
         mainCardElement.addEventListener('mouseenter', () => {
             totalSOLElement.style.textShadow = '0 0 80px rgba(249, 205, 79, 0.8)';
         });
@@ -669,12 +575,10 @@
             totalSOLElement.style.textShadow = '0 0 40px rgba(249, 205, 79, 0.4)';
         });
 
-        // Auto-update every 3 hours (just balance check)
-        setInterval(() => {
-            if (!isLoading) {
-                fetchBasicData();
-            }
-        }, 3 * 60 * 60 * 1000);
+        console.log('🎯 SOL Creator Payout Tracker Loaded');
+        console.log('Tracking wallet:', WALLET_ADDRESS);
+        console.log('Using Helius API with key: ...abb1');
+        console.log('Ready for comprehensive transaction analysis!');
     </script>
 </body>
 </html>
