@@ -313,7 +313,7 @@
             
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Click button to start analysis</span>
+                <span id="statusText">Click to fire up the forge</span>
             </div>
             
             <div class="progress-container" id="progressContainer">
@@ -327,7 +327,7 @@
                 <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                 </svg>
-                Start Analysis
+                Fire the Forge
             </button>
             
             <div class="last-refreshed">
@@ -398,7 +398,7 @@
                     <svg class="refresh-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                     </svg>
-                    Start Analysis
+                    Fire the Forge
                 `;
                 refreshButtonElement.style.opacity = '1';
             }
@@ -411,7 +411,7 @@
                 
                 if (timeSinceLastScan < COOLDOWN_PERIOD) {
                     const minutesRemaining = Math.ceil((COOLDOWN_PERIOD - timeSinceLastScan) / (60 * 1000));
-                    console.log(`⏰ Manual scan on cooldown. Try again in ${minutesRemaining} minutes.`);
+                    console.log(`🔥 Forge cooling down. Fire again in ${minutesRemaining} minutes.`);
                     return;
                 }
                 
@@ -422,7 +422,7 @@
             
             isLoading = true;
             statusDotElement.className = 'status-dot loading';
-            statusTextElement.textContent = 'Starting comprehensive analysis...';
+            statusTextElement.textContent = 'Forging the future of creator payouts...';
             showProgress();
             
             refreshButtonElement.disabled = true;
@@ -435,7 +435,7 @@
             `;
 
             try {
-                console.log('🚀 Starting COMPLETE transaction history scan...');
+                console.log('🔥 Firing up the Forge transaction analyzer...');
                 console.log('Target: 774.45 SOL');
                 
                 let totalReceived = 0;
@@ -445,7 +445,7 @@
                 let hasMore = true;
                 let pageCount = 0;
                 
-                statusTextElement.textContent = 'Scanning complete transaction history...';
+                statusTextElement.textContent = 'Igniting blockchain scanners...';
                 
                 while (hasMore && pageCount < 500) {
                     try {
@@ -500,8 +500,21 @@
                             if (signatures.length > 0) {
                                 const oldestTx = signatures[signatures.length - 1];
                                 const oldestDate = new Date(oldestTx.blockTime * 1000);
-                                statusTextElement.textContent = `Scanning history: Page ${pageCount} • Oldest: ${oldestDate.toLocaleDateString()}`;
-                                updateProgress(pageCount, Math.min(pageCount + 50, 500), '• Scanning');
+                                
+                                // Creative Forge-themed messages
+                                const forgeMessages = [
+                                    `Smelting blockchain data from ${oldestDate.toLocaleDateString()}...`,
+                                    `Hammering through transaction forge • Page ${pageCount}`,
+                                    `Molding SOL history • Back to ${oldestDate.toLocaleDateString()}`,
+                                    `Crafting payment records • ${allSignatures.length} signatures found`,
+                                    `Forging creator payment trail • Page ${pageCount}`,
+                                    `Tempering transaction data • Oldest: ${oldestDate.toLocaleDateString()}`,
+                                    `Shaping SOL analytics • ${allSignatures.length} blocks processed`
+                                ];
+                                
+                                const messageIndex = pageCount % forgeMessages.length;
+                                statusTextElement.textContent = forgeMessages[messageIndex];
+                                updateProgress(pageCount, Math.min(pageCount + 50, 500), '• Forging');
                             }
                             
                             if (signatures.length < 1000) {
@@ -519,12 +532,12 @@
                     }
                 }
 
-                console.log(`📊 PHASE 1 COMPLETE:`);
-                console.log(`- Pages scanned: ${pageCount}`);
-                console.log(`- Total signatures found: ${allSignatures.length}`);
+                console.log(`🔥 FORGE PHASE 1 COMPLETE:`);
+                console.log(`- Blockchain pages forged: ${pageCount}`);
+                console.log(`- Transaction signatures discovered: ${allSignatures.length}`);
                 
-                statusTextElement.textContent = `Analyzing ${allSignatures.length} transactions for SOL transfers...`;
-                updateProgress(0, 100, '• Analyzing');
+                statusTextElement.textContent = `Melting down ${allSignatures.length} transactions...`;
+                updateProgress(0, 100, '• Melting');
                 
                 let processedCount = 0;
                 let errorCount = 0;
@@ -618,7 +631,7 @@
                                     });
                                     
                                     if (balanceChangeAmount >= 100000000) {
-                                        console.log(`💰 ${formatSOL(balanceChangeAmount)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
+                                        console.log(`🔥 Forged: ${formatSOL(balanceChangeAmount)} from ${sigInfo.signature.substring(0, 8)}... (${new Date(sigInfo.blockTime * 1000).toLocaleDateString()})`);
                                     }
                                 }
                             }
@@ -627,8 +640,19 @@
                             
                             if (processedCount % 100 === 0) {
                                 const progress = Math.round((processedCount / allSignatures.length) * 100);
-                                statusTextElement.textContent = `Analyzing: ${transactionCount} transfers • ${formatSOL(totalReceived)} found`;
-                                updateProgress(progress, 100, '• Analyzing');
+                                
+                                // Creative progress messages
+                                const progressMessages = [
+                                    `Refining creator payments • ${formatSOL(totalReceived)} refined`,
+                                    `Casting SOL records • ${transactionCount} payments shaped`,
+                                    `Polishing payment data • ${formatSOL(totalReceived)} discovered`,
+                                    `Hardening transaction steel • ${transactionCount} transfers forged`,
+                                    `Perfecting payout precision • ${formatSOL(totalReceived)} minted`
+                                ];
+                                
+                                const msgIndex = Math.floor(processedCount / 100) % progressMessages.length;
+                                statusTextElement.textContent = progressMessages[msgIndex];
+                                updateProgress(progress, 100, '• Refining');
                             }
                             
                             await new Promise(resolve => setTimeout(resolve, 50));
@@ -643,12 +667,12 @@
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
 
-                console.log(`📊 FINAL COMPREHENSIVE RESULTS:`);
-                console.log(`- Total transaction signatures: ${allSignatures.length}`);
-                console.log(`- Transactions processed: ${processedCount}`);
-                console.log(`- Processing errors: ${errorCount}`);
-                console.log(`- Incoming SOL transfers found: ${transactionCount}`);
-                console.log(`- Total SOL received: ${formatSOL(totalReceived)}`);
+                console.log(`🔥 FORGE MASTERPIECE COMPLETE:`);
+                console.log(`- Transaction signatures processed: ${allSignatures.length}`);
+                console.log(`- Blockchain records forged: ${processedCount}`);
+                console.log(`- Forge errors encountered: ${errorCount}`);
+                console.log(`- Creator payments discovered: ${transactionCount}`);
+                console.log(`- Total SOL minted: ${formatSOL(totalReceived)}`);
                 
                 if (successfulTransfers.length > 0) {
                     const sortedTransfers = successfulTransfers.sort((a, b) => a.blockTime - b.blockTime);
@@ -657,7 +681,7 @@
                     console.log(`- Date range: ${earliestDate} to ${latestDate}`);
                 }
                 
-                updateProgress(100, 100, '• Complete');
+                updateProgress(100, 100, '• Masterpiece Complete');
                 
                 totalSOLElement.textContent = formatSOL(totalReceived);
                 
@@ -667,33 +691,33 @@
                 }, 300);
                 
                 statusDotElement.className = 'status-dot';
-                statusTextElement.textContent = `Analysis complete: ${transactionCount} transfers found`;
+                statusTextElement.textContent = `🔥 Forge complete: ${transactionCount} creator payments forged`;
                 
                 setTimeout(() => {
                     hideProgress();
                 }, 2000);
                 
                 const now = new Date();
-                lastRefreshedElement.textContent = `Last refreshed: ${now.toLocaleString()}`;
+                lastRefreshedElement.textContent = `Last forged: ${now.toLocaleString()}`;
                 
                 if (!isAutoRefresh) {
                     updateCooldownButton();
                 }
                 
-                console.log(`✅ Analysis successful - tracking is accurate!`);
+                console.log(`🔥 Forge successful - creator payments perfectly crafted!`);
 
             } catch (error) {
                 console.error('❌ Comprehensive analysis failed:', error);
                 
                 statusDotElement.className = 'status-dot error';
-                statusTextElement.textContent = 'Analysis failed';
+                statusTextElement.textContent = '🔥 Forge malfunction detected';
                 
                 hideProgress();
                 
                 const now = new Date();
-                lastRefreshedElement.textContent = `Last attempt: ${now.toLocaleString()}`;
+                lastRefreshedElement.textContent = `Last forge attempt: ${now.toLocaleString()}`;
                 
-                totalSOLElement.textContent = 'Error';
+                totalSOLElement.textContent = 'Forge Error';
             }
 
             isLoading = false;
@@ -737,11 +761,11 @@
             })}`);
             
             setTimeout(() => {
-                console.log('🔄 Starting scheduled auto-refresh...');
+                console.log('🔄 Firing up scheduled forge cycle...');
                 startAnalysis(true);
                 
                 setInterval(() => {
-                    console.log('🔄 Starting scheduled auto-refresh...');
+                    console.log('🔄 Firing up scheduled forge cycle...');
                     startAnalysis(true);
                 }, 12 * 60 * 60 * 1000);
                 
@@ -758,11 +782,11 @@
             totalSOLElement.style.textShadow = '0 0 40px rgba(249, 205, 79, 0.4)';
         });
 
-        console.log('🎯 SOL Creator Payout Tracker Loaded');
+        console.log('🔥 Forge SOL Creator Payout Tracker Loaded');
         console.log('Tracking wallet:', WALLET_ADDRESS);
         console.log('Using Helius API with key: ...abb1');
         console.log('Target amount: 774.45 SOL');
-        console.log('Auto-refresh: Every 12 hours at 6:30 PM & 6:30 AM EST');
+        console.log('Auto-forge: Every 12 hours at 6:30 PM & 6:30 AM EST');
     </script>
 </body>
 </html>
