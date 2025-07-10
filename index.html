@@ -306,7 +306,7 @@
     <script>
         // Configuration
         const WALLET_ADDRESS = 'DHUTZmXkySi4GRFP1nd4Js7CrN7fUbQHJUgLtor6Rubq';
-        const SOLANA_RPC_URL = 'https://api.mainnet-beta.solana.com'; // Free public RPC
+        const SOLANA_RPC_URL = 'https://mainnet.helius-rpc.com/?api-key=333a0276-cabb-47ac-ab3f-6f1a2fbaabb1';
         
         // DOM elements
         const totalSOLElement = document.getElementById('totalSOL');
@@ -539,12 +539,8 @@
         document.addEventListener('DOMContentLoaded', () => {
             console.log('🎯 SOL Creator Payout Tracker Loaded');
             console.log('Tracking wallet:', WALLET_ADDRESS);
-            console.log('Using free public Solana RPC - very limited analysis');
-            console.log('⚠️ For accurate totals, consider:');
-            console.log('1. Upgrading to paid Helius API');
-            console.log('2. Checking Solscan.io manually');
-            console.log('3. Using portfolio tracking tools');
-            console.log('4. Running analysis from your own server with better rate limits');
+            console.log('Using Helius API with key: ...abb1');
+            console.log('Ready for comprehensive transaction analysis!');
         });
 
         // Hover effects
