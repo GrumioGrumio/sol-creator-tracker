@@ -1,195 +1,169 @@
 // server.js
-import express from "express";
-import cors from "cors";
+// Lifetime gross SOL received counter with full v0 (loaded addresses) support.
+
+const express = require("express");
+const path = require("path");
+
+// --- Config (from Railway env) ---
+const WALLET = process.env.WALLET_ADDRESS || "DHUTZmXkySi4GRFP1nd4Js7CrN7fUbQHJUgLtor6Rubq";
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
+let RPC_URL = process.env.HELIUS_RPC_URL || "";
+if (!RPC_URL && HELIUS_API_KEY) {
+  RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+}
+if (!RPC_URL) {
+  console.error("Missing Helius RPC URL. Set HELIUS_RPC_URL or HELIUS_API_KEY.");
+  process.exit(1);
+}
 
 const app = express();
-app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname)));
 
-const API_KEY = process.env.HELIUS_API_KEY;
-if (!API_KEY) {
-  console.warn("⚠️ HELIUS_API_KEY is not set. Set it in Railway → Variables.");
+// -------- Helpers --------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
+async function rpc(method, params) {
+  const res = await fetch(RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Math.floor(Math.random()*1e9), method, params })
+  });
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+  const body = await res.json();
+  if (body.error) throw new Error(`RPC ${method} error: ${body.error.message || body.error.code}`);
+  return body.result;
 }
 
-const HELIUS_BASE = "https://api.helius.xyz/v0";
-const LAMPORTS_PER_SOL = 1_000_000_000n;
+// Pull all signatures for the address (paged by `before`)
+async function getAllSignatures(address) {
+  let all = [];
+  let before = null;
 
-// simple in-memory cache to avoid re-scanning on every hit
-const cache = new Map(); // key: `${wallet}|${excludeSelf}`, value: { totalLamports, txCount, from, to, at }
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-
-function fmtSOL(lamportsBigInt) {
-  const sign = lamportsBigInt < 0 ? "-" : "";
-  const n = lamportsBigInt < 0 ? -lamportsBigInt : lamportsBigInt;
-  const whole = n / LAMPORTS_PER_SOL;
-  const frac = n % LAMPORTS_PER_SOL;
-  const fracStr = (frac + "").padStart(9, "0").slice(0, 2); // 2 decimals
-  return `${sign}${whole}.${fracStr} SOL`;
-}
-
-async function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
- * Fetch *enriched* transactions from Helius and sum native lamports
- * sent *to* the target wallet (lifetime).
- *
- * - Handles legacy + v0 txs
- * - Includes inner transfers
- * - Paginates until history ends
- * - Optionally excludes "self" sends (from === to)
- */
-async function totalInboundLamports(wallet, { excludeSelf = false } = {}) {
-  const cacheKey = `${wallet}|${excludeSelf ? 1 : 0}`;
-  const hit = cache.get(cacheKey);
-  const now = Date.now();
-  if (hit && now - hit.at < CACHE_TTL_MS) {
-    return hit;
-  }
-
-  let before = undefined;
-  let pages = 0;
-  let total = 0n;
-  let txCount = 0;
-  let firstTs = null;
-  let lastTs = null;
-
-  // Helius returns up to 200 per page; we’ll walk back with `before` (signature)
   while (true) {
-    const url = new URL(`${HELIUS_BASE}/addresses/${wallet}/transactions`);
-    url.searchParams.set("api-key", API_KEY);
-    url.searchParams.set("limit", "200");
-    if (before) url.searchParams.set("before", before);
+    const params = [address, { limit: 1000, commitment: "finalized" }];
+    if (before) params[1].before = before;
 
-    const res = await fetch(url, { method: "GET" });
-    if (res.status === 429) {
-      // rate limit – back off gently
-      await sleep(1200);
-      continue;
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Helius error ${res.status}: ${text}`);
-    }
-
-    /** @type {Array<any>} */
-    const batch = await res.json();
-
+    const batch = await rpc("getSignaturesForAddress", params);
     if (!Array.isArray(batch) || batch.length === 0) break;
-    pages += 1;
 
-    // Sum all nativeTransfers that land in `wallet`
-    for (const tx of batch) {
-      txCount += 1;
+    all.push(...batch);
+    before = batch[batch.length - 1].signature;
 
-      // unified enriched shape: either top-level `nativeTransfers`
-      // or nested under `events.nativeTransfers` depending on API version
-      const transfers =
-        tx.nativeTransfers ??
-        (tx.events && tx.events.nativeTransfers) ??
-        [];
+    // polite pacing to avoid rate limits
+    await sleep(40);
 
-      for (const t of transfers) {
-        const to = (t.toUserAccount || "").trim();
-        const from = (t.fromUserAccount || "").trim();
-        if (to === wallet) {
-          if (excludeSelf && from === wallet) continue; // optional: skip self → self
-          const amt = BigInt(Math.trunc(Number(t.amount || 0)));
-          if (amt > 0) total += amt;
-        }
-      }
-
-      // gather rough date range (unix ms assumed; Helius `timestamp` is seconds)
-      const tsSec = tx.timestamp ?? tx.blockTime;
-      if (typeof tsSec === "number") {
-        const tsMs = tsSec < 1e12 ? tsSec * 1000 : tsSec;
-        if (!firstTs || tsMs < firstTs) firstTs = tsMs;
-        if (!lastTs || tsMs > lastTs) lastTs = tsMs;
-      }
-    }
-
-    before = batch[batch.length - 1]?.signature;
-    if (!before || batch.length < 200) break;
-
-    // minor throttle to be nice to the API
-    await sleep(50);
+    // Safety: if some RPC ever misbehaves and loops, bail out after a huge number
+    if (all.length > 1_000_000) break;
   }
-
-  const payload = {
-    wallet,
-    totalLamports: total.toString(),
-    formattedSOL: fmtSOL(total),
-    transactionsScanned: txCount,
-    from: firstTs ? new Date(firstTs).toISOString() : null,
-    to: lastTs ? new Date(lastTs).toISOString() : null,
-    lastUpdated: new Date().toISOString(),
-    excludeSelf,
-  };
-
-  cache.set(cacheKey, { ...payload, at: now });
-  return payload;
+  return all;
 }
 
-// JSON API (compatible name with your front-end)
-app.get("/api/sol-data", async (req, res) => {
-  try {
-    const wallet =
-      (req.query.wallet || process.env.DEFAULT_WALLET || "").toString().trim();
-    if (!wallet) {
-      return res.status(400).json({ error: "Missing ?wallet=address" });
-    }
-    if (!API_KEY) {
-      return res.status(500).json({ error: "Missing HELIUS_API_KEY" });
-    }
-    const excludeSelf = String(req.query.excludeSelf || "").toLowerCase() === "true";
+// Find wallet index across *static* keys + *loaded addresses* (v0)
+function findWalletIndex(tx) {
+  const staticKeys = (tx.transaction?.message?.accountKeys || []).map(k => (typeof k === "string" ? k : k.pubkey));
+  const loadedW = tx.meta?.loadedAddresses?.writable ?? [];
+  const loadedR = tx.meta?.loadedAddresses?.readonly ?? [];
+  const full = [...staticKeys, ...loadedW, ...loadedR];
+  const idx = full.findIndex(k => k === WALLET);
+  return { idx, fullLen: full.length };
+}
 
-    const data = await totalInboundLamports(wallet, { excludeSelf });
-    res.json(data);
-  } catch (err) {
-    console.error("API /api/sol-data error:", err);
-    res.status(500).json({ error: "Internal error", detail: String(err) });
+// Compute gross inbound lamports for our wallet from a single tx
+function inboundLamportsForWallet(tx) {
+  if (!tx?.meta || tx.meta.err) return 0;
+
+  const pre = tx.meta.preBalances || [];
+  const post = tx.meta.postBalances || [];
+
+  const { idx, fullLen } = findWalletIndex(tx);
+  if (idx < 0) return 0;                 // wallet not present
+  if (idx >= pre.length || idx >= post.length) {
+    // In theory, pre/post align with (static+loaded) accounts.
+    // If something is off, just skip this tx.
+    return 0;
   }
-});
 
-// Simple SVG badge you can embed
-app.get("/badge.svg", async (req, res) => {
-  try {
-    const wallet =
-      (req.query.wallet || process.env.DEFAULT_WALLET || "").toString().trim();
-    if (!wallet) {
-      res.status(400).type("text/plain").send("Missing ?wallet=address");
-      return;
+  const delta = (post[idx] ?? 0) - (pre[idx] ?? 0);
+  return delta > 0 ? delta : 0;          // count ONLY inbound (gross-in)
+}
+
+// Batch-get transactions and sum inbound lamports
+async function sumInboundForSignatures(sigs) {
+  let totalIn = 0;
+  let processed = 0;
+  let earliest = null;
+  let latest = null;
+
+  // small concurrency to be gentle on rate limits
+  const CONCURRENCY = 6;
+  const queue = [...sigs];
+
+  const workers = Array.from({ length: CONCURRENCY }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        const tx = await rpc("getTransaction", [
+          item.signature,
+          {
+            encoding: "json",
+            maxSupportedTransactionVersion: 0,
+            commitment: "finalized"
+          }
+        ]);
+
+        if (tx?.blockTime) {
+          const d = new Date(tx.blockTime * 1000);
+          if (!earliest || d < earliest) earliest = d;
+          if (!latest || d > latest) latest = d;
+        }
+
+        totalIn += inboundLamportsForWallet(tx);
+      } catch (e) {
+        // best-effort; skip on errors, continue
+      } finally {
+        processed++;
+        if (processed % 200 === 0) await sleep(60); // tiny breather every 200
+      }
     }
-    const excludeSelf = String(req.query.excludeSelf || "").toLowerCase() === "true";
-    const { formattedSOL } = await totalInboundLamports(wallet, { excludeSelf });
+  });
 
-    const label = "Lifetime SOL In";
-    const value = formattedSOL.replace(" SOL", "");
-    const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="420" height="60" role="img" aria-label="${label}: ${value} SOL">
-  <linearGradient id="g" x2="0" y2="100%">
-    <stop offset="0" stop-color="#444" stop-opacity=".2"/>
-    <stop offset="1" stop-opacity=".2"/>
-  </linearGradient>
-  <rect rx="10" width="420" height="60" fill="#111"/>
-  <rect rx="10" x="0" y="0" width="420" height="60" fill="url(#g)"/>
-  <text x="20" y="38" fill="#f9cd4f" font-family="Montserrat, Arial, sans-serif" font-size="18" font-weight="600">${label}</text>
-  <text x="400" y="38" fill="#fff" font-family="Montserrat, Arial, sans-serif" font-size="22" font-weight="800" text-anchor="end">${value} SOL</text>
-</svg>`.trim();
+  await Promise.all(workers);
 
-    res.setHeader("Cache-Control", "no-store");
-    res.type("image/svg+xml").send(svg);
-  } catch (err) {
-    console.error("SVG badge error:", err);
-    res.status(500).type("text/plain").send("badge error");
-  }
-});
+  return {
+    lamportsIn: totalIn,
+    scanned: processed,
+    earliest,
+    latest
+  };
+}
 
-app.get("/", (_req, res) =>
-  res.type("text/plain").send("OK – use /api/sol-data?wallet=... or /badge.svg?wallet=...")
-);
+// -------- In-memory cache for frontend --------
+let CACHE = {
+  totalSOL: 0,
+  formattedSOL: "—",
+  lastUpdated: null,
+  scanned: 0,
+  earliest: null,
+  latest: null
+};
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`listening on :${PORT}`);
-});
+async function refreshNow() {
+  console.log("🔎 Starting full lifetime scan for", WALLET);
+
+  const signatures = await getAllSignatures(WALLET);
+  console.log(`• Signatures discovered: ${signatures.length}`);
+
+  const { lamportsIn, scanned, earliest, latest } = await sumInboundForSignatures(signatures);
+
+  const sol = lamportsIn / LAMPORTS_PER_SOL;
+
+  CACHE = {
+    totalSOL: sol,
+    formattedSOL: `${sol.toFixed(2)} SOL`,
+    lastUpdated: new Date().toISOString(),
+    scanned,
+    earliest: earliest ? earliest.toISOString() : null,
+    latest: latest ? latest.toISOString() : null
+  };
