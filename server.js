@@ -1,169 +1,103 @@
 // server.js
-// Lifetime gross SOL received counter with full v0 (loaded addresses) support.
-
 const express = require("express");
-const path = require("path");
+const cors = require("cors");
+const compression = require("compression");
 
-// --- Config (from Railway env) ---
-const WALLET = process.env.WALLET_ADDRESS || "DHUTZmXkySi4GRFP1nd4Js7CrN7fUbQHJUgLtor6Rubq";
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
-let RPC_URL = process.env.HELIUS_RPC_URL || "";
-if (!RPC_URL && HELIUS_API_KEY) {
-  RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-}
-if (!RPC_URL) {
-  console.error("Missing Helius RPC URL. Set HELIUS_RPC_URL or HELIUS_API_KEY.");
-  process.exit(1);
-}
+// ── ENV ────────────────────────────────────────────────────────────────────────
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
+const PORT = process.env.PORT || 3000;
 
+if (!HELIUS_API_KEY) console.warn("⚠️  Missing HELIUS_API_KEY env var");
+if (!WALLET_ADDRESS) console.warn("⚠️  Missing WALLET_ADDRESS env var");
+
+// ── APP ────────────────────────────────────────────────────────────────────────
 const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+app.use(cors());
+app.use(compression());
 
-// -------- Helpers --------
+// (Optional) serve your static site if you keep it in /public
+// app.use(express.static("public"));
+
+// ── GROSS-INBOUND CALC (Helius Enhanced Tx API) ───────────────────────────────
+const BASE = "https://api.helius.xyz/v0/addresses";
+const PAGE_LIMIT = 1000;           // Helius page size
+const MAX_PAGES = 50000;           // safety cap
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const LAMPORTS_PER_SOL = 1_000_000_000;
 
-async function rpc(method, params) {
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: Math.floor(Math.random()*1e9), method, params })
-  });
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const body = await res.json();
-  if (body.error) throw new Error(`RPC ${method} error: ${body.error.message || body.error.code}`);
-  return body.result;
-}
+async function sumGrossInboundSOL() {
+  let totalLamports = 0n;
+  let before;         // pagination cursor (signature of last tx on a page)
+  let pages = 0;
 
-// Pull all signatures for the address (paged by `before`)
-async function getAllSignatures(address) {
-  let all = [];
-  let before = null;
+  while (pages < MAX_PAGES) {
+    const url =
+      `${BASE}/${WALLET_ADDRESS}/transactions?api-key=${HELIUS_API_KEY}` +
+      `&limit=${PAGE_LIMIT}${before ? `&before=${before}` : ""}`;
 
-  while (true) {
-    const params = [address, { limit: 1000, commitment: "finalized" }];
-    if (before) params[1].before = before;
+    const res = await fetch(url);
+    if (!res.ok) {
+      if (res.status === 429) { await sleep(1000); continue; }
+      throw new Error(`Helius HTTP ${res.status}`);
+    }
+    const txs = await res.json();
+    if (!Array.isArray(txs) || txs.length === 0) break;
 
-    const batch = await rpc("getSignaturesForAddress", params);
-    if (!Array.isArray(batch) || batch.length === 0) break;
+    for (const tx of txs) {
+      // Newer Helius: tx.events.nativeTransfers ; older: tx.nativeTransfers
+      const nativeTransfers =
+        (tx.events && tx.events.nativeTransfers) || tx.nativeTransfers || [];
 
-    all.push(...batch);
-    before = batch[batch.length - 1].signature;
-
-    // polite pacing to avoid rate limits
-    await sleep(40);
-
-    // Safety: if some RPC ever misbehaves and loops, bail out after a huge number
-    if (all.length > 1_000_000) break;
-  }
-  return all;
-}
-
-// Find wallet index across *static* keys + *loaded addresses* (v0)
-function findWalletIndex(tx) {
-  const staticKeys = (tx.transaction?.message?.accountKeys || []).map(k => (typeof k === "string" ? k : k.pubkey));
-  const loadedW = tx.meta?.loadedAddresses?.writable ?? [];
-  const loadedR = tx.meta?.loadedAddresses?.readonly ?? [];
-  const full = [...staticKeys, ...loadedW, ...loadedR];
-  const idx = full.findIndex(k => k === WALLET);
-  return { idx, fullLen: full.length };
-}
-
-// Compute gross inbound lamports for our wallet from a single tx
-function inboundLamportsForWallet(tx) {
-  if (!tx?.meta || tx.meta.err) return 0;
-
-  const pre = tx.meta.preBalances || [];
-  const post = tx.meta.postBalances || [];
-
-  const { idx, fullLen } = findWalletIndex(tx);
-  if (idx < 0) return 0;                 // wallet not present
-  if (idx >= pre.length || idx >= post.length) {
-    // In theory, pre/post align with (static+loaded) accounts.
-    // If something is off, just skip this tx.
-    return 0;
-  }
-
-  const delta = (post[idx] ?? 0) - (pre[idx] ?? 0);
-  return delta > 0 ? delta : 0;          // count ONLY inbound (gross-in)
-}
-
-// Batch-get transactions and sum inbound lamports
-async function sumInboundForSignatures(sigs) {
-  let totalIn = 0;
-  let processed = 0;
-  let earliest = null;
-  let latest = null;
-
-  // small concurrency to be gentle on rate limits
-  const CONCURRENCY = 6;
-  const queue = [...sigs];
-
-  const workers = Array.from({ length: CONCURRENCY }, async () => {
-    while (queue.length) {
-      const item = queue.shift();
-      try {
-        const tx = await rpc("getTransaction", [
-          item.signature,
-          {
-            encoding: "json",
-            maxSupportedTransactionVersion: 0,
-            commitment: "finalized"
-          }
-        ]);
-
-        if (tx?.blockTime) {
-          const d = new Date(tx.blockTime * 1000);
-          if (!earliest || d < earliest) earliest = d;
-          if (!latest || d > latest) latest = d;
-        }
-
-        totalIn += inboundLamportsForWallet(tx);
-      } catch (e) {
-        // best-effort; skip on errors, continue
-      } finally {
-        processed++;
-        if (processed % 200 === 0) await sleep(60); // tiny breather every 200
+      for (const nt of nativeTransfers) {
+        const to = nt.toUserAccount || nt.to;
+        const amt = nt.amount ?? 0;
+        if (to === WALLET_ADDRESS) totalLamports += BigInt(amt);
       }
     }
-  });
 
-  await Promise.all(workers);
+    pages += 1;
+    before = txs[txs.length - 1].signature;
+    if (txs.length < PAGE_LIMIT) break;
 
-  return {
-    lamportsIn: totalIn,
-    scanned: processed,
-    earliest,
-    latest
-  };
+    // Gentle pacing to avoid rate limits
+    await sleep(60);
+  }
+
+  return Number(totalLamports) / 1e9; // convert lamports → SOL
 }
 
-// -------- In-memory cache for frontend --------
-let CACHE = {
-  totalSOL: 0,
-  formattedSOL: "—",
+// ── STATE + SCHEDULING ────────────────────────────────────────────────────────
+let state = {
+  running: false,
+  totalSOL: null,
   lastUpdated: null,
-  scanned: 0,
-  earliest: null,
-  latest: null
+  lastRunMs: 0
 };
 
-async function refreshNow() {
-  console.log("🔎 Starting full lifetime scan for", WALLET);
+async function runAnalysis() {
+  if (state.running) return;
+  state.running = true;
+  const t0 = Date.now();
 
-  const signatures = await getAllSignatures(WALLET);
-  console.log(`• Signatures discovered: ${signatures.length}`);
+  try {
+    console.log("▶️  Starting gross-inbound analysis for", WALLET_ADDRESS);
+    const totalSOL = await sumGrossInboundSOL();
+    state.totalSOL = totalSOL;
+    state.lastUpdated = new Date().toISOString();
+    state.lastRunMs = Date.now() - t0;
+    console.log(
+      `✅ Done. Gross inbound SOL: ${totalSOL.toFixed(2)} (took ${Math.round(state.lastRunMs/1000)}s)`
+    );
+  } catch (e) {
+    console.error("❌ Analysis failed:", e);
+  } finally {
+    state.running = false;
+  }
+}
 
-  const { lamportsIn, scanned, earliest, latest } = await sumInboundForSignatures(signatures);
+// Run once on boot
+runAnalysis();
 
-  const sol = lamportsIn / LAMPORTS_PER_SOL;
-
-  CACHE = {
-    totalSOL: sol,
-    formattedSOL: `${sol.toFixed(2)} SOL`,
-    lastUpdated: new Date().toISOString(),
-    scanned,
-    earliest: earliest ? earliest.toISOString() : null,
-    latest: latest ? latest.toISOString() : null
-  };
+// Schedule 6:30 AM & 6:30 PM Eastern
+function scheduleAt(hours, minutes, tz = "America/New_York") {
+  cons
