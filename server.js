@@ -16,88 +16,326 @@ const app = express();
 app.use(cors());
 app.use(compression());
 
-// (Optional) serve your static site if you keep it in /public
-// app.use(express.static("public"));
-
-// ── GROSS-INBOUND CALC (Helius Enhanced Tx API) ───────────────────────────────
-const BASE = "https://api.helius.xyz/v0/addresses";
-const PAGE_LIMIT = 1000;           // Helius page size
-const MAX_PAGES = 50000;           // safety cap
+// ── COMPREHENSIVE SOL ANALYSIS (RPC-based like frontend) ──────────────────────
+const SOLANA_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function sumGrossInboundSOL() {
-  let totalLamports = 0n;
-  let before;         // pagination cursor (signature of last tx on a page)
-  let pages = 0;
-
-  while (pages < MAX_PAGES) {
-    const url =
-      `${BASE}/${WALLET_ADDRESS}/transactions?api-key=${HELIUS_API_KEY}` +
-      `&limit=${PAGE_LIMIT}${before ? `&before=${before}` : ""}`;
-
-    const res = await fetch(url);
-    if (!res.ok) {
-      if (res.status === 429) { await sleep(1000); continue; }
-      throw new Error(`Helius HTTP ${res.status}`);
-    }
-    const txs = await res.json();
-    if (!Array.isArray(txs) || txs.length === 0) break;
-
-    for (const tx of txs) {
-      // Newer Helius: tx.events.nativeTransfers ; older: tx.nativeTransfers
-      const nativeTransfers =
-        (tx.events && tx.events.nativeTransfers) || tx.nativeTransfers || [];
-
-      for (const nt of nativeTransfers) {
-        const to = nt.toUserAccount || nt.to;
-        const amt = nt.amount ?? 0;
-        if (to === WALLET_ADDRESS) totalLamports += BigInt(amt);
+async function fetchWithRetry(url, options, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status === 429) {
+        console.log(`Rate limited, waiting ${(i + 1) * 2}s...`);
+        await sleep((i + 1) * 2000);
+        continue;
       }
+      return response;
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await sleep(1000);
     }
-
-    pages += 1;
-    before = txs[txs.length - 1].signature;
-    if (txs.length < PAGE_LIMIT) break;
-
-    // Gentle pacing to avoid rate limits
-    await sleep(60);
   }
-
-  return Number(totalLamports) / 1e9; // convert lamports → SOL
 }
 
-// ── STATE + SCHEDULING ────────────────────────────────────────────────────────
+async function comprehensiveSOLAnalysis() {
+  console.log('🔥 Starting comprehensive SOL analysis...');
+  
+  let totalReceived = 0;
+  let transactionCount = 0;
+  let allSignatures = [];
+  let before = null;
+  let hasMore = true;
+  let pageCount = 0;
+  const MAX_PAGES = 1000; // Reasonable limit
+  
+  // Phase 1: Get all transaction signatures
+  console.log('📥 Phase 1: Fetching transaction signatures...');
+  
+  while (hasMore && pageCount < MAX_PAGES) {
+    try {
+      const params = [WALLET_ADDRESS, { 
+        limit: 1000,
+        commitment: 'finalized'
+      }];
+      if (before) {
+        params[1].before = before;
+      }
+
+      const response = await fetchWithRetry(SOLANA_RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: pageCount + 1,
+          method: 'getSignaturesForAddress',
+          params: params
+        })
+      });
+
+      if (!response.ok) {
+        console.warn(`HTTP ${response.status} on signature page ${pageCount + 1}`);
+        await sleep(2000);
+        continue;
+      }
+
+      const data = await response.json();
+      
+      if (data.error) {
+        console.warn(`API Error on signature page ${pageCount + 1}:`, data.error);
+        if (data.error.code === 429) {
+          await sleep(3000);
+          continue;
+        }
+        break;
+      }
+
+      const signatures = data.result || [];
+      
+      if (signatures.length === 0) {
+        console.log('✅ Reached end of transaction history');
+        hasMore = false;
+      } else {
+        allSignatures.push(...signatures);
+        before = signatures[signatures.length - 1].signature;
+        pageCount++;
+        
+        if (pageCount % 10 === 0) {
+          console.log(`📄 Processed ${pageCount} signature pages, ${allSignatures.length} total signatures`);
+        }
+        
+        if (signatures.length < 1000) {
+          console.log(`✅ Reached end: ${signatures.length} signatures on final page`);
+          hasMore = false;
+        }
+      }
+
+      await sleep(100); // Gentle rate limiting
+      
+    } catch (error) {
+      console.warn(`Error on signature page ${pageCount + 1}:`, error);
+      await sleep(2000);
+      pageCount++;
+    }
+  }
+
+  console.log(`📊 Phase 1 Complete: ${allSignatures.length} signatures collected from ${pageCount} pages`);
+
+  // Phase 2: Analyze each transaction for SOL changes
+  console.log('🔍 Phase 2: Analyzing transactions for SOL transfers...');
+  
+  let processedCount = 0;
+  let errorCount = 0;
+  const batchSize = 10;
+  
+  for (let i = 0; i < allSignatures.length; i += batchSize) {
+    const batch = allSignatures.slice(i, i + batchSize);
+    
+    // Process batch in parallel for speed
+    const batchPromises = batch.map(async (sigInfo) => {
+      try {
+        if (sigInfo.err) {
+          return { processed: true, received: 0 };
+        }
+        
+        const response = await fetchWithRetry(SOLANA_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: `tx_${processedCount}`,
+            method: 'getTransaction',
+            params: [
+              sigInfo.signature,
+              { 
+                encoding: 'json',
+                maxSupportedTransactionVersion: 0,
+                commitment: 'finalized'
+              }
+            ]
+          })
+        });
+
+        if (!response.ok) {
+          return { processed: true, received: 0, error: true };
+        }
+
+        const txData = await response.json();
+        
+        if (txData.error || !txData.result || txData.result.meta?.err) {
+          return { processed: true, received: 0, error: !!txData.error };
+        }
+        
+        // Calculate balance change for our wallet
+        const meta = txData.result.meta;
+        const transaction = txData.result.transaction;
+        
+        const preBalances = meta.preBalances;
+        const postBalances = meta.postBalances;
+        const accountKeys = transaction.message.accountKeys;
+        
+        let walletIndex = -1;
+        for (let j = 0; j < accountKeys.length; j++) {
+          if (accountKeys[j] === WALLET_ADDRESS) {
+            walletIndex = j;
+            break;
+          }
+        }
+
+        let balanceChange = 0;
+        if (walletIndex !== -1 && 
+            walletIndex < preBalances.length && 
+            walletIndex < postBalances.length) {
+          
+          const preBalance = preBalances[walletIndex];
+          const postBalance = postBalances[walletIndex];
+          balanceChange = postBalance - preBalance;
+        }
+        
+        return { 
+          processed: true, 
+          received: balanceChange > 0 ? balanceChange : 0,
+          signature: sigInfo.signature,
+          blockTime: sigInfo.blockTime,
+          balanceChange
+        };
+        
+      } catch (error) {
+        return { processed: true, received: 0, error: true };
+      }
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    
+    for (const result of batchResults) {
+      processedCount++;
+      
+      if (result.error) {
+        errorCount++;
+      } else if (result.received > 0) {
+        totalReceived += result.received;
+        transactionCount++;
+        
+        // Log significant transfers
+        if (result.received >= 100000000) { // >= 0.1 SOL
+          const sol = result.received / 1000000000;
+          const date = result.blockTime ? new Date(result.blockTime * 1000).toLocaleDateString() : 'Unknown';
+          console.log(`💰 Found transfer: ${sol.toFixed(4)} SOL on ${date} (${result.signature.substring(0, 8)}...)`);
+        }
+      }
+    }
+    
+    // Progress logging
+    if (processedCount % 1000 === 0) {
+      const progress = Math.round((processedCount / allSignatures.length) * 100);
+      const solReceived = totalReceived / 1000000000;
+      console.log(`🔄 Progress: ${progress}% (${processedCount}/${allSignatures.length}) - ${solReceived.toFixed(2)} SOL found, ${transactionCount} transfers`);
+    }
+    
+    await sleep(200); // Rate limiting between batches
+  }
+
+  const finalSOL = totalReceived / 1000000000;
+  
+  console.log(`🎉 Analysis Complete!`);
+  console.log(`- Total signatures processed: ${processedCount}`);
+  console.log(`- Errors encountered: ${errorCount}`);
+  console.log(`- Successful transfers found: ${transactionCount}`);
+  console.log(`- Total SOL received: ${finalSOL.toFixed(6)} SOL`);
+  
+  return finalSOL;
+}
+
+// ── STATE + CACHING ────────────────────────────────────────────────────────────
 let state = {
   running: false,
   totalSOL: null,
   lastUpdated: null,
-  lastRunMs: 0
+  lastRunMs: 0,
+  transactionCount: 0
 };
 
 async function runAnalysis() {
-  if (state.running) return;
+  if (state.running) {
+    console.log('⏳ Analysis already running, skipping...');
+    return;
+  }
+  
   state.running = true;
-  const t0 = Date.now();
-
+  const startTime = Date.now();
+  
   try {
-    console.log("▶️  Starting gross-inbound analysis for", WALLET_ADDRESS);
-    const totalSOL = await sumGrossInboundSOL();
+    console.log("🚀 Starting comprehensive SOL analysis for", WALLET_ADDRESS);
+    
+    const totalSOL = await comprehensiveSOLAnalysis();
+    
     state.totalSOL = totalSOL;
     state.lastUpdated = new Date().toISOString();
-    state.lastRunMs = Date.now() - t0;
-    console.log(
-      `✅ Done. Gross inbound SOL: ${totalSOL.toFixed(2)} (took ${Math.round(state.lastRunMs/1000)}s)`
-    );
-  } catch (e) {
-    console.error("❌ Analysis failed:", e);
+    state.lastRunMs = Date.now() - startTime;
+    
+    console.log(`✅ Analysis completed! Total SOL: ${totalSOL.toFixed(6)} (took ${Math.round(state.lastRunMs/1000)}s)`);
+    
+  } catch (error) {
+    console.error("❌ Analysis failed:", error);
   } finally {
     state.running = false;
   }
 }
 
-// Run once on boot
+// ── API ENDPOINTS ──────────────────────────────────────────────────────────────
+app.get('/api/status', (req, res) => {
+  res.json({
+    ...state,
+    wallet: WALLET_ADDRESS,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/refresh', async (req, res) => {
+  if (state.running) {
+    return res.status(429).json({ error: 'Analysis already running' });
+  }
+  
+  // Start analysis in background
+  runAnalysis().catch(console.error);
+  
+  res.json({ message: 'Analysis started', running: true });
+});
+
+// ── SCHEDULING ─────────────────────────────────────────────────────────────────
+function scheduleDaily() {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(6, 30, 0, 0); // 6:30 AM
+  
+  const msUntilTomorrow = tomorrow.getTime() - now.getTime();
+  
+  console.log(`⏰ Next auto-analysis scheduled for: ${tomorrow.toLocaleString()}`);
+  
+  setTimeout(() => {
+    console.log('🔄 Starting scheduled daily analysis...');
+    runAnalysis();
+    
+    // Set up daily interval
+    setInterval(() => {
+      console.log('🔄 Starting scheduled daily analysis...');
+      runAnalysis();
+    }, 24 * 60 * 60 * 1000); // Every 24 hours
+    
+  }, msUntilTomorrow);
+}
+
+// ── SERVER STARTUP ─────────────────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`🚀 SOL Tracker Backend running on port ${PORT}`);
+  console.log(`📊 Tracking wallet: ${WALLET_ADDRESS}`);
+  console.log(`🔑 Using Helius API key: ...${HELIUS_API_KEY.slice(-4)}`);
+});
+
+// Run initial analysis
 runAnalysis();
 
-// Schedule 6:30 AM & 6:30 PM Eastern
-function scheduleAt(hours, minutes, tz = "America/New_York") {
-  cons
+// Schedule daily runs
+scheduleDaily();
+
+console.log('🔥 SOL Tracker Backend initialized and ready!');
